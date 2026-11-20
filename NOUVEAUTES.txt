@@ -1,3 +1,6 @@
+SubSync 1.8.1
+- Amélioration vidéo : les visages trop petits (plans larges) et les têtes très levées ou baissées ne sont plus retouchés : la retouche y inventait des traits et accentuait les blocs de compression en mouvement.
+
 SubSync 1.8
 - Amélioration vidéo : nouveaux modèles « LiveAction » (2026), spécialisés pour les vidéos réelles (DVD, télé) : textures de peau et détails conservés au lieu de l'effet lissé. Rendus : Fidèle (conseillé), Net, Lissé.
 - Environ 2 fois plus rapide (modèle plus léger + retouche des visages limitée à leur zone).

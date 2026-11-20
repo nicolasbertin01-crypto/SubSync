@@ -20,13 +20,13 @@ def _nms(boxes, scores, thr=0.4):
 
 
 class FaceRestorer:
-    def __init__(self, det_path, rest_path, providers, min_size=48, score=0.55, yaw_full=0.15, yaw_max=0.35):
+    def __init__(self, det_path, rest_path, providers, min_size=48, score=0.55, yaw_full=0.15, yaw_max=0.35, min_eyes=36):
         import onnxruntime as ort
         so = ort.SessionOptions(); so.log_severity_level = 3
         self.det = ort.InferenceSession(det_path, so, providers=providers)
         self.rest = ort.InferenceSession(rest_path, so, providers=providers)
         self.rin = self.rest.get_inputs()[0].name
-        self.min_size = min_size; self.score = score; self.yaw_full = yaw_full; self.yaw_max = yaw_max
+        self.min_size = min_size; self.score = score; self.yaw_full = yaw_full; self.yaw_max = yaw_max; self.min_eyes = min_eyes
         m = np.zeros((512, 512), np.float32); b = 512 // 10          # masque à bords adoucis
         m[b:-b, b:-b] = 1; self.mask = cv2.GaussianBlur(m, (0, 0), b * 0.6)
 
@@ -68,6 +68,11 @@ class FaceRestorer:
             yaw = abs(float(no[0] - (le[0] + re_[0]) / 2)) / ed
             tilt = abs(float(re_[1] - le[1])) / ed
             if yaw >= self.yaw_max or tilt > 0.6 or re_[0] <= le[0]: continue
+            # visage trop petit (les modèles inventent des traits) ou tête très levée / baissée : on n'y touche pas
+            if ed < self.min_eyes: continue
+            ey = (le[1] + re_[1]) / 2; my = (kps[3][1] + kps[4][1]) / 2
+            pitch = float(no[1] - ey) / max(1.0, float(my - ey))
+            if pitch < 0.32 or pitch > 0.85: continue
             k = strength * (1.0 if yaw <= self.yaw_full else (self.yaw_max - yaw) / (self.yaw_max - self.yaw_full))
             if k <= 0.02: continue
             if out is None: out = rgb.copy()
