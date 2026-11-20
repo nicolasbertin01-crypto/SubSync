@@ -89,53 +89,94 @@ def run(job):
     sizes = np.array([1, 3, TH, TW], np.int64); mixa = np.array([mix], np.float32)
     vf = "cas=%.2f,scale=out_color_matrix=bt709:out_range=tv,format=yuv420p" % float(job.get("sharpen", 0.35))
     t_start = time.time(); nfaces = 0
-    for k in range(nseg):
-        seg = os.path.join(work, "seg_%05d.mkv" % k)
-        if os.path.exists(seg): continue
-        n = min(SEG, total - k * SEG); t0 = k * SEG * fps_d / fps_n
-        last = k == nseg - 1          # le dernier tronçon lit jusqu'à la fin (nombre d'images estimé)
+    stats = {"faces": 0, "frames": 0}
+
+    def do_segment(k, n, last, part):
+        """Traite un tronçon ; renvoie le nombre d'images, lève OSError/RuntimeError en cas de problème."""
+        t0 = k * SEG * fps_d / fps_n
+        if os.environ.get("SUBSYNC_FAIL_ONCE") == str(k) and not stats.get("failed"):   # test de la reprise automatique
+            stats["failed"] = True; raise OSError("panne simulée")
         dec = subprocess.Popen([ff, "-v", "error", "-ss", "%.6f" % t0, "-i", src, "-map", "0:v:0"] + ([] if last else ["-frames:v", str(n)]) +
                                ["-f", "rawvideo", "-pix_fmt", "rgb24", "-"], stdout=subprocess.PIPE, creationflags=NOWIN)
-        part = seg[:-4] + ".part.mkv"
         encp = subprocess.Popen([ff, "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", "%dx%d" % (TW, TH),
                                  "-r", "%d/%d" % (fps_n, fps_d), "-i", "-", "-vf", vf] + enc +
                                 ["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", part],
                                 stdin=subprocess.PIPE, creationflags=NOWIN)
-        q_in = queue.Queue(8); q_out = queue.Queue(8)
-        fsz = W * H * 3
+        q_in = queue.Queue(8); q_out = queue.Queue(8); fsz = W * H * 3; werr = []
         def reader():
-            while True:
-                b = dec.stdout.read(fsz)
-                if len(b) < fsz: q_in.put(None); return
-                q_in.put(b)
+            try:
+                while True:
+                    b = dec.stdout.read(fsz)
+                    if len(b) < fsz: break
+                    q_in.put(b)
+            except Exception as e:
+                werr.append(e)
+            q_in.put(None)
         def writer():
             while True:
                 b = q_out.get()
                 if b is None: return
-                encp.stdin.write(b)
+                if werr: continue                      # on vide la file sans écrire
+                try: encp.stdin.write(b)
+                except Exception as e: werr.append(e)
         tr = threading.Thread(target=reader, daemon=True); tw = threading.Thread(target=writer, daemon=True)
-        tr.start(); tw.start(); got = 0
-        while True:
-            b = q_in.get()
-            if b is None: break
-            x = (np.frombuffer(b, np.uint8).reshape(H, W, 3).astype(np.float32) / 255.0).transpose(2, 0, 1)[None]
-            y = up.run(None, {"input": x, "mix": mixa, "sizes": sizes})[0][0]
-            img = (y.transpose(1, 2, 0) * 255.0 + 0.5).astype(np.uint8)
-            if fr is not None:
-                img, nf = fr.restore(img, fstr); nfaces += nf
-            q_out.put(np.ascontiguousarray(img).tobytes()); got += 1
-            if got % 24 == 0: emit(t="prog", done=done_frames + got, total=total)
-        q_out.put(None); tw.join(); encp.stdin.close(); encp.wait(); dec.wait()
+        tr.start(); tw.start(); got = 0; nf_seg = 0
+        try:
+            while True:
+                b = q_in.get()
+                if b is None or werr: break
+                x = (np.frombuffer(b, np.uint8).reshape(H, W, 3).astype(np.float32) / 255.0).transpose(2, 0, 1)[None]
+                y = up.run(None, {"input": x, "mix": mixa, "sizes": sizes})[0][0]
+                img = (y.transpose(1, 2, 0) * 255.0 + 0.5).astype(np.uint8)
+                if fr is not None:
+                    img, nf = fr.restore(img, fstr); nf_seg += nf
+                q_out.put(np.ascontiguousarray(img).tobytes()); got += 1
+                if got % 24 == 0: emit(t="prog", done=done_frames + got, total=total)
+        finally:
+            q_out.put(None); tw.join()
+            try: encp.stdin.close()
+            except Exception: pass
+            if werr:
+                for p_ in (dec, encp):
+                    try: p_.kill()
+                    except Exception: pass
+            encp.wait(); dec.wait()
+        if werr: raise OSError("lecture/écriture interrompue (%s)" % werr[0])
+        if dec.returncode != 0: raise OSError("lecture de la vidéo interrompue (code %s)" % dec.returncode)
+        if encp.returncode != 0: raise OSError("encodage interrompu (code %s)" % encp.returncode)
+        if not last and got != n: raise OSError("tronçon incomplet (%d images sur %d)" % (got, n))
+        stats["faces"] += nf_seg
+        return got
+
+    k = 0
+    while k < nseg:
+        seg = os.path.join(work, "seg_%05d.mkv" % k)
+        if os.path.exists(seg): k += 1; continue
+        n = min(SEG, total - k * SEG); last = k == nseg - 1
+        part = seg[:-4] + ".part.mkv"
+        for attempt in range(1, 5):
+            try:
+                got = do_segment(k, n, last, part); break
+            except OSError as e:
+                try: os.remove(part)
+                except OSError: pass
+                if attempt == 4:
+                    raise RuntimeError("tronçon %d : %s. Le disque de la vidéo est-il toujours accessible ? "
+                                       "Relancez : le travail reprendra à ce tronçon." % (k + 1, e))
+                wait = float(os.environ.get("SUBSYNC_RETRY_WAIT", 15)) * attempt
+                log("  tronçon %d : %s → nouvel essai dans %.0f s (%d/3)" % (k + 1, e, wait, attempt))
+                time.sleep(wait)
         if got == 0:
             if k == 0: raise RuntimeError("aucune image lue dans la vidéo")
             try: os.remove(part)
             except OSError: pass
             nseg = k; break              # durée surestimée : la vidéo est finie
-        if encp.returncode != 0: raise RuntimeError("l'encodage du tronçon %d a échoué" % (k + 1))
-        os.replace(part, seg); done_frames += got
+        os.replace(part, seg); done_frames += got; stats["frames"] += got
         el = time.time() - t_start
-        log("  tronçon %d/%d terminé (%.1f images/s)" % (k + 1, nseg, got / max(1e-6, el) if k == 0 else done_frames / max(1e-6, el)))
+        log("  tronçon %d/%d terminé (%.1f images/s)" % (k + 1, nseg, stats["frames"] / max(1e-6, el)))
         emit(t="prog", done=done_frames, total=total)
+        k += 1
+    nfaces = stats["faces"]
     # assemblage : vidéo améliorée + audio, sous-titres, chapitres et pièces jointes d'origine
     log("  assemblage du fichier final (sons et sous-titres d'origine)…")
     lst = os.path.join(work, "liste.txt")

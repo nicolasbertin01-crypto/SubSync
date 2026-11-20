@@ -1,3 +1,6 @@
+SubSync 1.6.1
+- Amélioration vidéo : si la lecture de la vidéo ou l'écriture du résultat échoue (disque momentanément indisponible…), le tronçon est automatiquement recommencé jusqu'à 3 fois au lieu d'arrêter tout le traitement. Contrôle que chaque tronçon contient bien toutes ses images.
+
 SubSync 1.6
 - Mises à jour automatiques : bouton « Mises à jour… » (vérification au démarrage, installation automatique ou sur demande, retour à la version précédente, mise à jour des moteurs de calcul avec retour arrière automatique en cas de problème).
 
