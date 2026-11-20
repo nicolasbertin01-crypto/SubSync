@@ -1,3 +1,7 @@
+SubSync 1.11
+- Amélioration vidéo : bouton « Aperçu (≈ 1 min) ». Traite 3 extraits de 5 s (ou un moment précis, ex. 10:05) avec les réglages choisis, puis ouvre une fenêtre de comparaison : curseur avant/après à glisser, zoom ×3 par clic droit, « Voir en vidéo » (extrait original et amélioré côte à côte), estimation de la durée de traitement et de la taille du fichier final.
+- Comparaison A/B : en relançant un aperçu avec d'autres réglages sur la même vidéo, on peut afficher à gauche le réglage précédent au lieu de l'original.
+
 SubSync 1.10
 - Amélioration vidéo : fichiers environ 3 fois plus petits (≈ 1 Go par épisode au lieu de 3,2 Go) grâce à l'encodeur x265 sur le processeur, à qualité visuelle équivalente. L'ancien mode reste disponible : « Fichier : Qualité maximale ≈ 3 Go ».
 - Nouvelle option « Grain (après l'IA) » : Garder / Réduire (conseillé) / Fortement réduire. Atténue le fourmillement accentué par l'IA, surtout visible dans les scènes sombres, et réduit encore la taille du fichier.

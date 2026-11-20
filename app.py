@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """SubSync - interface graphique."""
-import os, sys, queue, threading, traceback, subprocess, time
+import os, sys, queue, threading, traceback, subprocess, time, shutil
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import customtkinter as ctk
@@ -32,6 +32,86 @@ ENH_GRAIN = {"Garder": "", "Réduire (conseillé)": "reduire", "Fortement rédui
 ENH_SIZE = {"Compact ≈ 1 Go (conseillé)": "compact", "Qualité maximale ≈ 3 Go": "max"}
 ENH_FACES = {"Naturels (GFPGAN, conseillé)": "gfpgan", "Détaillés (GPEN)": "gpen", "Ne pas retoucher les visages": ""}
 VIDEO_PY = os.path.join(APP_DIR, ".venv_video", "Scripts", "python.exe") if os.name == "nt" else os.environ.get("SUBSYNC_VIDEO_PY", sys.executable)
+
+
+class PreviewWindow(ctk.CTkToplevel):
+    """Comparaison avant / après avec un curseur à glisser, zoom par clic, vidéo côte à côte."""
+    W, H = 960, 720
+
+    def __init__(self, app, pv, other=None):
+        super().__init__(app)
+        self.title("Aperçu — " + os.path.basename(pv["video"])); self.geometry("1000x900"); self.transient(app)
+        self.pv = pv; self.other = other; self.idx = 0; self.split = 0.5; self.zoom = None
+        d = pv["data"]
+        ctk.CTkLabel(self, text="Réglage : " + pv["label"], font=ctk.CTkFont(weight="bold"), wraplength=960, justify="left").pack(anchor="w", padx=14, pady=(10, 0))
+        est = ""
+        if d.get("est_seconds"):
+            m = int(d["est_seconds"] // 60)
+            est = "Épisode complet : environ %s de traitement (%.1f images/s) · fichier ≈ %d Mo (%.1f Mb/s pour l'image)" % (
+                ("%d h %02d min" % (m // 60, m % 60)) if m >= 60 else "%d min" % m, d.get("fps", 0), round(d.get("est_size_mb", 0)), d.get("mbps", 0))
+        ctk.CTkLabel(self, text=est, text_color=("gray30", "gray70")).pack(anchor="w", padx=14)
+        bar = ctk.CTkFrame(self, fg_color="transparent"); bar.pack(fill="x", padx=14, pady=6)
+        items = d.get("items", [])
+        if len(items) > 1:
+            ctk.CTkSegmentedButton(bar, values=["Extrait %d (%d:%02d)" % (i + 1, int(it["time"]) // 60, int(it["time"]) % 60) for i, it in enumerate(items)],
+                                   command=self._pick).pack(side="left")
+        self.left = ctk.StringVar(value="Original")
+        if other:
+            ctk.CTkLabel(bar, text="  À gauche :").pack(side="left")
+            ctk.CTkSegmentedButton(bar, values=["Original", "Réglage précédent"], variable=self.left, command=lambda v: self._draw()).pack(side="left", padx=4)
+        ctk.CTkButton(bar, text="Voir en vidéo", width=110, command=self._video).pack(side="right")
+        self.cv = ctk.CTkCanvas(self, width=self.W, height=self.H, highlightthickness=0, bg="black"); self.cv.pack(padx=14, pady=4)
+        self.legend = ctk.CTkLabel(self, text=""); self.legend.pack(anchor="w", padx=14)
+        ctk.CTkLabel(self, text="Glissez la souris sur l'image pour déplacer la séparation · clic droit : zoom ×3 à cet endroit (re-clic droit : vue entière)",
+                     text_color=("gray35", "gray65")).pack(anchor="w", padx=14, pady=(0, 10))
+        self.cv.bind("<B1-Motion>", self._drag); self.cv.bind("<Button-1>", self._drag); self.cv.bind("<Button-3>", self._zoom)
+        self._load(); self._draw()
+
+    def _pick(self, v):
+        self.idx = int(v.split()[1]) - 1; self._load(); self._draw()
+
+    def _load(self):
+        from PIL import Image
+        it = self.pv["data"]["items"][self.idx]
+        self.after_img = Image.open(it["apres"]).convert("RGB")
+        self.before_img = Image.open(it["avant"]).convert("RGB").resize(self.after_img.size)
+        self.prev_img = None
+        if self.other:
+            try: self.prev_img = Image.open(self.other["data"]["items"][self.idx]["apres"]).convert("RGB").resize(self.after_img.size)
+            except Exception: self.prev_img = None
+
+    def _view(self, im):
+        if self.zoom:
+            zx, zy = self.zoom; w, h = im.size; cw, ch = w // 3, h // 3
+            x0 = min(max(0, int(zx * w - cw / 2)), w - cw); y0 = min(max(0, int(zy * h - ch / 2)), h - ch)
+            im = im.crop((x0, y0, x0 + cw, y0 + ch))
+        return im.resize((self.W, self.H))
+
+    def _draw(self):
+        from PIL import Image, ImageTk
+        left = self.prev_img if (self.left.get() == "Réglage précédent" and self.prev_img is not None) else self.before_img
+        a = self._view(left); b = self._view(self.after_img)
+        x = int(self.split * self.W)
+        comp = b.copy(); comp.paste(a.crop((0, 0, x, self.H)), (0, 0))
+        self._tk = ImageTk.PhotoImage(comp)
+        self.cv.delete("all"); self.cv.create_image(0, 0, image=self._tk, anchor="nw")
+        self.cv.create_line(x, 0, x, self.H, fill="white", width=2)
+        lt = "Réglage précédent : " + self.other["label"] if left is self.prev_img and self.prev_img is not None else "Original (agrandi simplement)"
+        self.legend.configure(text="◀ %s      |      Réglage actuel ▶" % lt)
+
+    def _drag(self, ev):
+        self.split = min(1.0, max(0.0, ev.x / self.W)); self._draw()
+
+    def _zoom(self, ev):
+        self.zoom = None if self.zoom else (ev.x / self.W, ev.y / self.H); self._draw()
+
+    def _video(self):
+        v = self.pv["data"]["items"][self.idx]["video"]
+        try:
+            if os.name == "nt": os.startfile(v)
+            else: subprocess.Popen(["xdg-open", v])
+        except Exception as e:
+            messagebox.showinfo("SubSync", "Impossible d'ouvrir la vidéo : %s" % e)
 
 
 class ModePicker(ctk.CTkFrame):
@@ -232,8 +312,12 @@ class App(BaseTk):
         ctk.CTkLabel(self.enh_row, text="Fichier").grid(row=10, column=0, columnspan=2, sticky="w", pady=(8, 0))
         self.enh_size = ctk.CTkComboBox(self.enh_row, values=list(ENH_SIZE), width=265, command=lambda v: self._save_enh())
         self.enh_size.set(es.get("size", "Compact ≈ 1 Go (conseillé)")); self.enh_size.grid(row=11, column=0, columnspan=2, sticky="w")
+        pf2 = ctk.CTkFrame(self.enh_row, fg_color="transparent"); pf2.grid(row=13, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+        ctk.CTkLabel(pf2, text="Moment (option.)").pack(side="left")
+        self.enh_time = ctk.CTkEntry(pf2, width=70, placeholder_text="10:05"); self.enh_time.pack(side="left", padx=6)
+        self.prev_btn = ctk.CTkButton(pf2, text="Aperçu (≈ 1 min)", width=120, command=self.preview); self.prev_btn.pack(side="left")
         self.enh_help = ctk.CTkLabel(self.enh_row, text="", text_color=("gray35", "gray65"), font=ctk.CTkFont(size=11), wraplength=262, justify="left")
-        self.enh_help.grid(row=12, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        self.enh_help.grid(row=14, column=0, columnspan=2, sticky="w", pady=(6, 0))
         self.enh_row.grid_remove()
         self.only_sel = ctk.CTkCheckBox(side, text="Seulement les lignes sélectionnées")
         self.only_sel.grid(row=r, column=0, sticky="w", padx=14, pady=(10, 0)); r += 1
@@ -718,28 +802,20 @@ class App(BaseTk):
                 self.q.put(("err", iid, str(e), None))
         self.q.put(("end",))
 
-    def _enhance(self, video, opts, log, progress, cancel):
-        """Lance subsync_enhance.py dans l'environnement vidéo et suit sa progression."""
+    def _enh_tag(self, e):
+        return "v3_%s_%d_%s_%d%s" % (e["preset"], e["target_h"], e["faces"] or "sans", int(e["face_strength"] * 100),
+                                     ("_" + e["preclean"] if e.get("preclean") else "") + ("_g" + e["degrain"] if e.get("degrain") else "") + "_" + e.get("size", "compact"))
+
+    def _run_video_job(self, job, log, progress, cancel):
+        """Lance subsync_enhance.py dans l'environnement vidéo ; renvoie les messages « done » et « preview »."""
         import json, subprocess
-        info = merge.video_info(video)
-        e = opts["enh"]
-        d = opts["out_dir"] or os.path.dirname(video); os.makedirs(d, exist_ok=True)
-        stem = os.path.splitext(os.path.basename(video))[0]
-        out = os.path.join(d, stem + " - HD.mkv")
-        if os.path.abspath(out) == os.path.abspath(video): out = os.path.join(d, stem + " - HD (2).mkv")
-        tag = "v3_%s_%d_%s_%d%s" % (e["preset"], e["target_h"], e["faces"] or "sans", int(e["face_strength"] * 100),
-                                    ("_" + e["preclean"] if e.get("preclean") else "") + ("_g" + e["degrain"] if e.get("degrain") else "") + "_" + e.get("size", "compact"))
-        work = os.path.join(d, ".subsync_hd_" + stem + "_" + tag)
-        job = dict(info, ffmpeg=eng.ffmpeg_exe(), src=video, out=out, work=work, sharpen=0.35, **e)
-        os.makedirs(work, exist_ok=True)
-        jp = os.path.join(work, "tache_gui.json")
+        os.makedirs(job["work"], exist_ok=True)
+        jp = os.path.join(job["work"], "tache_gui.json")
         with open(jp, "w", encoding="utf-8") as f: json.dump(job, f)
-        log("Amélioration de « %s » : %d×%d, %.3f i/s, ~%d images" % (os.path.basename(video), info["width"], info["height"],
-                                                                    info["fps_num"] / info["fps_den"], info["frames"]))
         p = subprocess.Popen([VIDEO_PY, "-u", os.path.join(APP_DIR, "subsync_enhance.py"), jp], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                              cwd=APP_DIR, env=dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1"),
                              creationflags=0x08000000 if os.name == "nt" else 0)
-        result = {}; err = None
+        res = {}; err = None
         def watch():
             while p.poll() is None:
                 if cancel():
@@ -754,16 +830,102 @@ class App(BaseTk):
                 continue
             if m.get("t") == "log": log(m["m"])
             elif m.get("t") == "prog" and m.get("total"): progress(m["done"] / m["total"])
-            elif m.get("t") == "done": result = m
+            elif m.get("t") in ("done", "preview"): res[m["t"]] = m
             elif m.get("t") == "err": err = m["m"]
         p.wait()
-        if cancel():
-            log("  arrêté : relancez plus tard, le travail reprendra où il s'est arrêté."); raise eng.Cancelled()
-        if err or not result: raise RuntimeError(err or "l'amélioration s'est arrêtée sans résultat")
+        if cancel(): raise eng.Cancelled()
+        if err or "done" not in res: raise RuntimeError(err or "le traitement s'est arrêté sans résultat")
+        return res
+
+    def _enhance(self, video, opts, log, progress, cancel):
+        info = merge.video_info(video)
+        e = opts["enh"]
+        d = opts["out_dir"] or os.path.dirname(video); os.makedirs(d, exist_ok=True)
+        stem = os.path.splitext(os.path.basename(video))[0]
+        out = os.path.join(d, stem + " - HD.mkv")
+        if os.path.abspath(out) == os.path.abspath(video): out = os.path.join(d, stem + " - HD (2).mkv")
+        work = os.path.join(d, ".subsync_hd_" + stem + "_" + self._enh_tag(e))
+        job = dict(info, ffmpeg=eng.ffmpeg_exe(), src=video, out=out, work=work, sharpen=0.35, **e)
+        log("Amélioration de « %s » : %d×%d, %.3f i/s, ~%d images" % (os.path.basename(video), info["width"], info["height"],
+                                                                    info["fps_num"] / info["fps_den"], info["frames"]))
+        try:
+            result = self._run_video_job(job, log, progress, cancel)["done"]
+        except eng.Cancelled:
+            log("  arrêté : relancez plus tard, le travail reprendra où il s'est arrêté."); raise
         fps = info["frames"] / max(1.0, result.get("seconds", 1))
         summ = "%s → %dp%s · %.1f images/s" % (os.path.basename(out), e["target_h"],
                                                (", %d visages restaurés" % result.get("faces", 0)) if e["faces"] else "", fps)
         return eng.Result(video, out, "amélioration", 100.0, "ok", summ, {}, [])
+
+    # ------------------------------------------------------------------ aperçu
+    def _enh_opts(self):
+        return dict(preset=ENH_PRESETS.get(self.enh_preset.get(), "fidele"), target_h=1080 if self.enh_res.get() == "1080p" else 720,
+                    faces=ENH_FACES.get(self.enh_faces.get(), "gfpgan"), face_strength=round(float(self.enh_fstr.get()), 2),
+                    preclean=ENH_PRECLEAN.get(self.enh_pre.get(), ""), degrain=ENH_GRAIN.get(self.enh_grain.get(), "reduire"),
+                    size=ENH_SIZE.get(self.enh_size.get(), "compact"))
+
+    def _enh_label(self):
+        g = self.enh_grain.get().split(" (")[0]; pre = self.enh_pre.get().split(" (")[0]
+        fc = ENH_FACES.get(self.enh_faces.get(), "gfpgan")
+        vis = ("visages %s %d %%" % (fc.upper(), round(float(self.enh_fstr.get()) * 100))) if fc else "visages non retouchés"
+        return "%s · %s · %s · nettoyage %s · grain %s · fichier %s" % (
+            self.enh_preset.get().split(" (")[0], self.enh_res.get(), vis, pre.lower(), g.lower(), self.enh_size.get().split(" ≈")[0].lower())
+
+    @staticmethod
+    def _parse_time(txt):
+        txt = (txt or "").strip().replace("h", ":").replace("m", ":").replace("s", "")
+        if not txt: return None
+        parts = [float(x) for x in txt.split(":") if x.strip() != ""]
+        t = 0.0
+        for x in parts: t = t * 60 + x
+        return t
+
+    def preview(self):
+        if self.worker:
+            messagebox.showinfo("SubSync", "Attendez la fin du traitement en cours."); return
+        if not video_ready():
+            messagebox.showinfo("SubSync", "L'amélioration vidéo n'est pas installée (« Installer l'amélioration vidéo.bat »)."); return
+        sel = [self.rows[i] for i in self.tree.selection() if self.rows[i].videos] or [r for r in self.rows.values() if r.videos]
+        if not sel:
+            messagebox.showinfo("SubSync", "Ajoutez une vidéo (et sélectionnez-la) avant de demander un aperçu."); return
+        video = sel[0].videos[0]
+        try: t_user = self._parse_time(self.enh_time.get())
+        except ValueError:
+            messagebox.showinfo("SubSync", "Moment non compris : écrivez par exemple 10:05 ou 1:02:30."); return
+        e = self._enh_opts(); label = self._enh_label()
+        self.stop_flag = False
+        self.go.configure(state="disabled"); self.stop_btn.configure(state="normal"); self.mode.configure(state="disabled")
+        self.prev_btn.configure(state="disabled"); self.prog.set(0); self._timer_start(1)
+        self.status.configure(text="Aperçu de « %s »…" % os.path.basename(video))
+        def run():
+            try:
+                info = merge.video_info(video)
+                dur = info["duration"] or info["frames"] * info["fps_den"] / info["fps_num"]
+                last = getattr(self, "_last_preview", None)
+                if t_user is not None: times = [min(max(0, t_user), max(0, dur - 6))]
+                elif last and last["video"] == video: times = last["times"]
+                else: times = [round(dur * f) for f in (0.2, 0.5, 0.8)]
+                stem = os.path.splitext(os.path.basename(video))[0]
+                work = os.path.join(APP_DIR, "cache", "apercu", "%s_%s_%s" % (stem[:40], self._enh_tag(e), "-".join(str(int(t)) for t in times)))
+                if os.path.isdir(work): shutil.rmtree(work, ignore_errors=True)
+                audio_mb = sum(0.224 for _ in range(2)) * dur / 8   # estimation grossière des pistes audio (2 x 224 kb/s)
+                job = dict(info, ffmpeg=eng.ffmpeg_exe(), src=video, out="", work=work, sharpen=0.35,
+                           preview=dict(times=times, dur=5), audio_mb=audio_mb, **e)
+                self.q.put(("log", "Aperçu (%s) : %d extrait(s) de 5 s…" % (label, len(times))))
+                res = self._run_video_job(job, lambda m: self.q.put(("log", m)), lambda f: self.q.put(("prog", f)), lambda: self.stop_flag)
+                self.q.put(("preview_ready", dict(video=video, times=times, label=label, data=res.get("preview", {}))))
+            except eng.Cancelled:
+                self.q.put(("log", "Aperçu arrêté."))
+            except Exception:
+                self.q.put(("log", traceback.format_exc()))
+            self.q.put(("preview_end",))
+        self.worker = threading.Thread(target=run, daemon=True); self.worker.start()
+
+    def _show_preview(self, pv):
+        prev = getattr(self, "_last_preview", None)
+        other = prev if (prev and prev["video"] == pv["video"] and prev["times"] == pv["times"] and prev["label"] != pv["label"]) else None
+        PreviewWindow(self, pv, other)
+        self._last_preview = pv
 
     # ------------------------------------------------------------------ mises à jour
     def _auto_update_check(self):
@@ -878,6 +1040,12 @@ class App(BaseTk):
                     self._on_update_found(m[1], m[2], m[3])
                 elif kind == "upd_done":
                     self._after_update(m[1])
+                elif kind == "preview_ready":
+                    self._show_preview(m[1])
+                elif kind == "preview_end":
+                    self.worker = None; self.go.configure(state="normal"); self.stop_btn.configure(state="disabled")
+                    self.mode.configure(state="normal"); self.prev_btn.configure(state="normal"); self._timer_stop(); self.prog.set(1)
+                    self.status.configure(text="Aperçu terminé.")
                 elif kind == "fuspairs":
                     self._apply_content_pairs(m[1])
                 elif kind == "fusend":

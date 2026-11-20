@@ -141,9 +141,9 @@ def run(job):
     t_start = time.time(); nfaces = 0
     stats = {"faces": 0, "frames": 0}
 
-    def do_segment(k, n, last, part):
+    def do_segment(k, n, last, part, t0=None, prog_base=None):
         """Traite un tronçon ; renvoie le nombre d'images, lève OSError/RuntimeError en cas de problème."""
-        t0 = k * SEG * fps_d / fps_n
+        if t0 is None: t0 = k * SEG * fps_d / fps_n
         if os.environ.get("SUBSYNC_FAIL_ONCE") == str(k) and not stats.get("failed"):   # test de la reprise automatique
             stats["failed"] = True; raise OSError("panne simulée")
         pre = PRECLEAN.get(job.get("preclean") or "")
@@ -193,7 +193,9 @@ def run(job):
                 if fr is not None:
                     img, nf = fr.restore(img, fstr); nf_seg += nf
                 q_out.put(np.ascontiguousarray(img).tobytes()); got += 1
-                if got % 24 == 0: emit(t="prog", done=done_frames + got, total=total)
+                if got % 24 == 0:
+                    if prog_base is None: emit(t="prog", done=done_frames + got, total=total)
+                    else: emit(t="prog", done=prog_base[0] + got, total=prog_base[1])
         finally:
             q_out.put(None); tw.join()
             try: encp.stdin.close()
@@ -209,6 +211,9 @@ def run(job):
         if not last and got != n: raise OSError("tronçon incomplet (%d images sur %d)" % (got, n))
         stats["faces"] += nf_seg
         return got
+
+    if job.get("preview"):
+        return preview(job, do_segment, stats, fps_n, fps_d, TW, TH, work)
 
     k = 0
     while k < nseg:
@@ -269,6 +274,38 @@ def run(job):
     el = time.time() - t_start
     log("  terminé : %s" % os.path.basename(out) + (" · %d visages restaurés" % nfaces if fr is not None else ""))
     emit(t="done", out=out, faces=nfaces, seconds=el)
+
+
+def preview(job, do_segment, stats, fps_n, fps_d, TW, TH, work):
+    """Aperçu : quelques extraits traités avec les réglages choisis + images avant/après + vidéos côte à côte."""
+    ff = job["ffmpeg"]; src = job["src"]; fps = fps_n / fps_d
+    pv = job["preview"]; dur = float(os.environ.get("SUBSYNC_PREVIEW_DUR", pv.get("dur", 5))); times = [float(t) for t in pv["times"]]
+    n = max(12, int(round(dur * fps))); tot = n * len(times)
+    items = []; t_proc = 0.0; enc_bytes = 0
+    for i, t in enumerate(times):
+        log("  aperçu %d/%d : extrait à %d:%02d" % (i + 1, len(times), int(t) // 60, int(t) % 60))
+        part = os.path.join(work, "apercu_%d.mkv" % i)
+        t1 = time.time()
+        n_i = max(1, min(n, int(job["frames"]) - int(t * fps) - 1))
+        got = do_segment(i, n_i, False, part, t0=t, prog_base=(i * n, tot))
+        if i > 0 or len(times) == 1: t_proc += (time.time() - t1) / max(1, got) * n
+        enc_bytes += os.path.getsize(part)
+        mid = t + dur / 2
+        o_png = os.path.join(work, "avant_%d.png" % i); e_png = os.path.join(work, "apres_%d.png" % i)
+        sbs = os.path.join(work, "cote_a_cote_%d.mp4" % i)
+        subprocess.run([ff, "-v", "error", "-y", "-ss", "%.3f" % mid, "-i", src, "-frames:v", "1",
+                        "-vf", "scale=%d:%d:flags=bicubic" % (TW, TH), o_png], creationflags=NOWIN)
+        subprocess.run([ff, "-v", "error", "-y", "-ss", "%.3f" % (dur / 2), "-i", part, "-frames:v", "1", e_png], creationflags=NOWIN)
+        subprocess.run([ff, "-v", "error", "-y", "-ss", "%.3f" % t, "-t", "%.3f" % dur, "-i", src, "-i", part, "-filter_complex",
+                        "[0:v]scale=%d:%d:flags=bicubic,setsar=1[a];[1:v]setsar=1[b];[a][b]hstack,format=yuv420p" % (TW, TH),
+                        "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-an", sbs], creationflags=NOWIN)
+        items.append(dict(time=t, avant=o_png, apres=e_png, video=sbs if os.path.exists(sbs) else part))
+    per_frame = t_proc / max(1, (len(times) - 1 if len(times) > 1 else 1) * n)
+    total = int(job["frames"]); dur_all = total * fps_d / fps_n
+    mbps = enc_bytes * 8 / (len(times) * n / fps) / 1e6
+    emit(t="preview", items=items, fps=(1 / per_frame if per_frame else 0), est_seconds=per_frame * total,
+         est_size_mb=(mbps * dur_all / 8) + job.get("audio_mb", 0), mbps=mbps)
+    emit(t="done", out="", faces=stats["faces"], seconds=0)
 
 
 if __name__ == "__main__":
