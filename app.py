@@ -28,6 +28,8 @@ VERSION = upd.local_version() if upd.local_version() != "0" else "1.6"
 LANGS = ["fr", "en", "es", "de", "it", "pt", "nl"]
 ENH_PRESETS = {"Fidèle (conseillé)": "fidele", "Net": "net", "Lissé (sources très bruitées)": "lisse"}
 ENH_PRECLEAN = {"Aucun": "", "Léger (vidéos compressées)": "leger", "Fort (blocs très visibles en mouvement)": "fort"}
+ENH_GRAIN = {"Garder": "", "Réduire (conseillé)": "reduire", "Fortement réduire": "fort"}
+ENH_SIZE = {"Compact ≈ 1 Go (conseillé)": "compact", "Qualité maximale ≈ 3 Go": "max"}
 ENH_FACES = {"Naturels (GFPGAN, conseillé)": "gfpgan", "Détaillés (GPEN)": "gpen", "Ne pas retoucher les visages": ""}
 VIDEO_PY = os.path.join(APP_DIR, ".venv_video", "Scripts", "python.exe") if os.name == "nt" else os.environ.get("SUBSYNC_VIDEO_PY", sys.executable)
 
@@ -224,8 +226,14 @@ class App(BaseTk):
         ctk.CTkLabel(self.enh_row, text="Nettoyage de la source (avant l'IA)").grid(row=6, column=0, columnspan=2, sticky="w", pady=(8, 0))
         self.enh_pre = ctk.CTkComboBox(self.enh_row, values=list(ENH_PRECLEAN), width=265, command=lambda v: self._save_enh())
         self.enh_pre.set(es.get("pre", "Aucun")); self.enh_pre.grid(row=7, column=0, columnspan=2, sticky="w")
+        ctk.CTkLabel(self.enh_row, text="Grain (après l'IA)").grid(row=8, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        self.enh_grain = ctk.CTkComboBox(self.enh_row, values=list(ENH_GRAIN), width=265, command=lambda v: self._save_enh())
+        self.enh_grain.set(es.get("grain", "Réduire (conseillé)")); self.enh_grain.grid(row=9, column=0, columnspan=2, sticky="w")
+        ctk.CTkLabel(self.enh_row, text="Fichier").grid(row=10, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        self.enh_size = ctk.CTkComboBox(self.enh_row, values=list(ENH_SIZE), width=265, command=lambda v: self._save_enh())
+        self.enh_size.set(es.get("size", "Compact ≈ 1 Go (conseillé)")); self.enh_size.grid(row=11, column=0, columnspan=2, sticky="w")
         self.enh_help = ctk.CTkLabel(self.enh_row, text="", text_color=("gray35", "gray65"), font=ctk.CTkFont(size=11), wraplength=262, justify="left")
-        self.enh_help.grid(row=8, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        self.enh_help.grid(row=12, column=0, columnspan=2, sticky="w", pady=(6, 0))
         self.enh_row.grid_remove()
         self.only_sel = ctk.CTkCheckBox(side, text="Seulement les lignes sélectionnées")
         self.only_sel.grid(row=r, column=0, sticky="w", padx=14, pady=(10, 0)); r += 1
@@ -316,7 +324,8 @@ class App(BaseTk):
             import json
             d = self._load_settings()
             self.enh_fstr_lbl.configure(text="%d %%" % round(float(self.enh_fstr.get()) * 100))
-            d["enhance3"] = dict(preset=self.enh_preset.get(), res=self.enh_res.get(), faces=self.enh_faces.get(), fstr=round(float(self.enh_fstr.get()), 2), pre=self.enh_pre.get())
+            d["enhance3"] = dict(preset=self.enh_preset.get(), res=self.enh_res.get(), faces=self.enh_faces.get(), fstr=round(float(self.enh_fstr.get()), 2), pre=self.enh_pre.get(),
+                                  grain=self.enh_grain.get(), size=self.enh_size.get())
             with open(self.SETTINGS, "w", encoding="utf-8") as f: json.dump(d, f)
         except Exception:
             pass
@@ -634,7 +643,8 @@ class App(BaseTk):
                     translator="ia" if self.translator.get().startswith("IA") else "standard", keep_langs=[c for c, cb in self.keep_langs.items() if cb.get()],
                     enh=dict(preset=ENH_PRESETS.get(self.enh_preset.get(), "fidele"), target_h=1080 if self.enh_res.get() == "1080p" else 720,
                              faces=ENH_FACES.get(self.enh_faces.get(), "gfpgan"), face_strength=round(float(self.enh_fstr.get()), 2),
-                             preclean=ENH_PRECLEAN.get(self.enh_pre.get(), "")))
+                             preclean=ENH_PRECLEAN.get(self.enh_pre.get(), ""), degrain=ENH_GRAIN.get(self.enh_grain.get(), "reduire"),
+                             size=ENH_SIZE.get(self.enh_size.get(), "compact")))
         self.go.configure(state="disabled"); self.stop_btn.configure(state="normal"); self.mode.configure(state="disabled")
         self.prog.set(0); self._timer_start(len(todo))
         self.worker = threading.Thread(target=self._work, args=(todo, opts), daemon=True); self.worker.start()
@@ -718,7 +728,7 @@ class App(BaseTk):
         out = os.path.join(d, stem + " - HD.mkv")
         if os.path.abspath(out) == os.path.abspath(video): out = os.path.join(d, stem + " - HD (2).mkv")
         tag = "v3_%s_%d_%s_%d%s" % (e["preset"], e["target_h"], e["faces"] or "sans", int(e["face_strength"] * 100),
-                                    "_" + e["preclean"] if e.get("preclean") else "")
+                                    ("_" + e["preclean"] if e.get("preclean") else "") + ("_g" + e["degrain"] if e.get("degrain") else "") + "_" + e.get("size", "compact"))
         work = os.path.join(d, ".subsync_hd_" + stem + "_" + tag)
         job = dict(info, ffmpeg=eng.ffmpeg_exe(), src=video, out=out, work=work, sharpen=0.35, **e)
         os.makedirs(work, exist_ok=True)

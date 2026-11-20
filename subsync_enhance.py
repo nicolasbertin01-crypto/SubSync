@@ -77,23 +77,31 @@ def session(path, prov):
     return ort.InferenceSession(path, so, providers=prov)
 
 
-def pick_encoder(ff):
-    """Encodeur matériel AMD si disponible (rapide), sinon x264 sur le processeur."""
-    # débit élevé imposé : le mode « qualité constante » de certains pilotes donnait des fichiers trop compressés
+def _works(ff, args):
+    try:
+        r = subprocess.run([ff, "-v", "error", "-f", "lavfi", "-i", "color=c=gray:s=1280x720:d=0.2", "-frames:v", "3"] + args + ["-f", "null", "-"],
+                           capture_output=True, timeout=60, creationflags=NOWIN)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def pick_encoder(ff, size="compact"):
+    """compact : x265 sur le processeur (qualité constante, fichiers 3 à 4 fois plus petits) ;
+    max : encodeur de la carte graphique à débit élevé (rapide, fichiers gros)."""
     rate = ["-b:v", "%dM" % BITRATE_M, "-maxrate", "%dM" % int(BITRATE_M * 1.6), "-bufsize", "%dM" % (BITRATE_M * 2)]
-    cands = [("hevc_amf", ["-c:v", "hevc_amf", "-quality", "quality", "-rc", "vbr_peak"] + rate),
-             ("hevc_nvenc", ["-c:v", "hevc_nvenc", "-preset", "p6", "-rc", "vbr"] + rate),
-             ("hevc_qsv", ["-c:v", "hevc_qsv"] + rate),
-             ("libx264", ["-c:v", "libx264", "-preset", "medium", "-crf", "17"])]
+    x265 = ("libx265", ["-c:v", "libx265", "-preset", "fast", "-crf", "21", "-x265-params", "log-level=error:aq-mode=3"])
+    hw = [("hevc_amf", ["-c:v", "hevc_amf", "-quality", "quality", "-rc", "vbr_peak"] + rate),
+          ("hevc_nvenc", ["-c:v", "hevc_nvenc", "-preset", "p6", "-rc", "vbr"] + rate),
+          ("hevc_qsv", ["-c:v", "hevc_qsv"] + rate)]
+    cands = ([x265] + hw) if size == "compact" else (hw + [x265])
     for name, args in cands:
-        if name == "libx264": return name, args
-        try:
-            r = subprocess.run([ff, "-v", "error", "-f", "lavfi", "-i", "color=c=gray:s=1280x720:d=0.2", "-frames:v", "3"] + args + ["-f", "null", "-"],
-                               capture_output=True, timeout=60, creationflags=NOWIN)
-            if r.returncode == 0: return name, args
-        except Exception:
-            pass
-    return cands[-1]
+        if _works(ff, args): return name, args
+    return "libx264", ["-c:v", "libx264", "-preset", "medium", "-crf", "18"]
+
+
+# réduction du grain après l'IA (débruitage spatial + temporel, rapide) : image plus propre et fichier plus petit
+DEGRAIN = {"reduire": "hqdn3d=2:1.5:4:3", "fort": "hqdn3d=3.5:2.5:7:5"}
 
 
 def run(job):
@@ -106,7 +114,7 @@ def run(job):
     spec = PRESETS.get(job.get("preset", "fidele"), PRESETS["fidele"]); mix = spec["mix"]
     log("Amélioration : %s → %d×%d (%s, réglage « %s »%s), calcul sur %s" % (os.path.basename(src), TW, TH,
         "visages " + job["faces"] if job.get("faces") else "sans visages", job.get("preset"),
-        ", nettoyage " + job["preclean"] if job.get("preclean") else "", where))
+        (", nettoyage " + job["preclean"] if job.get("preclean") else "") + (", grain " + job["degrain"] if job.get("degrain") else ""), where))
     import cv2
     up = session(ensure_model(spec), prov)
     up_in = up.get_inputs()[0].name
@@ -119,7 +127,7 @@ def run(job):
     fstr = float(job.get("face_strength", 0.4))
     global BITRATE_M
     BITRATE_M = max(4, int(round(10 * (TW * TH) / (1440 * 1080))))
-    enc_name, enc = pick_encoder(ff)
+    enc_name, enc = pick_encoder(ff, job.get("size", "compact"))
     log("  encodeur vidéo : %s" % enc_name)
     work = job["work"]; os.makedirs(work, exist_ok=True)
     with open(os.path.join(work, "tache.json"), "w", encoding="utf-8") as f: json.dump(job, f)
@@ -128,7 +136,8 @@ def run(job):
     if done_frames: log("  reprise : %d / %d images déjà traitées" % (done_frames, total))
     emit(t="prog", done=done_frames, total=total)
     sizes = np.array([1, 3, TH, TW], np.int64); mixa = np.array([mix], np.float32)
-    vf = "cas=%.2f,scale=out_color_matrix=bt709:out_range=tv,format=yuv420p" % float(job.get("sharpen", 0.35))
+    dg = DEGRAIN.get(job.get("degrain") or "")
+    vf = (dg + "," if dg else "") + "cas=%.2f,scale=out_color_matrix=bt709:out_range=tv,format=yuv420p" % float(job.get("sharpen", 0.35))
     t_start = time.time(); nfaces = 0
     stats = {"faces": 0, "frames": 0}
 

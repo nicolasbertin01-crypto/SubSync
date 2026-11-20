@@ -1,3 +1,7 @@
+SubSync 1.10
+- Amélioration vidéo : fichiers environ 3 fois plus petits (≈ 1 Go par épisode au lieu de 3,2 Go) grâce à l'encodeur x265 sur le processeur, à qualité visuelle équivalente. L'ancien mode reste disponible : « Fichier : Qualité maximale ≈ 3 Go ».
+- Nouvelle option « Grain (après l'IA) » : Garder / Réduire (conseillé) / Fortement réduire. Atténue le fourmillement accentué par l'IA, surtout visible dans les scènes sombres, et réduit encore la taille du fichier.
+
 SubSync 1.9.1
 - Amélioration vidéo : correction du son absent à la lecture. Le son était bien présent mais regroupé au début du fichier au lieu d'être réparti avec l'image ; les lecteurs n'en jouaient rien. Le son et l'image sont maintenant strictement entrelacés (même précaution ajoutée à la Fusion VF).
 
