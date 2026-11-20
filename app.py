@@ -23,7 +23,8 @@ try:
 except Exception:
     HAS_DND = False
 
-VERSION = "1.5"
+import subsync_update as upd
+VERSION = upd.local_version() if upd.local_version() != "0" else "1.6"
 LANGS = ["fr", "en", "es", "de", "it", "pt", "nl"]
 ENH_PRESETS = {"Naturel": "naturel", "Équilibré (conseillé)": "equilibre", "Lissé (sources très bruitées)": "lisse"}
 ENH_FACES = {"Détaillés (GPEN)": "gpen", "Naturels (GFPGAN)": "gfpgan", "Ne pas retoucher les visages": ""}
@@ -103,6 +104,7 @@ class App(BaseTk):
         self._build()
         self.after(100, self._poll)
         self._log("SubSync prêt. Ajoutez vos fichiers .srt et vos vidéos (ou glissez-les dans la fenêtre).")
+        self.after(4000, self._auto_update_check)
         if not eng.alass_exe():
             self._log("Attention : alass introuvable dans le dossier bin — seule la correction de décalage global sera possible.")
 
@@ -125,6 +127,9 @@ class App(BaseTk):
                       text_color=("gray10", "gray90"), command=self.clear).pack(side="left")
         ctk.CTkButton(bar, text="Ouvrir le dossier du résultat", width=190, fg_color="transparent", border_width=1,
                       text_color=("gray10", "gray90"), command=self.open_folder).pack(side="right")
+        self.upd_btn = ctk.CTkButton(bar, text="Mises à jour…", width=120, fg_color="transparent", border_width=1,
+                                     text_color=("gray10", "gray90"), command=self.open_updates)
+        self.upd_btn.pack(side="right", padx=8)
         hint = "  (glisser-déposer accepté)" if HAS_DND else ""
         ctk.CTkLabel(bar, text=hint, text_color=("gray40", "gray60")).pack(side="left", padx=10)
 
@@ -744,6 +749,98 @@ class App(BaseTk):
                                                (", %d visages restaurés" % result.get("faces", 0)) if e["faces"] else "", fps)
         return eng.Result(video, out, "amélioration", 100.0, "ok", summ, {}, [])
 
+    # ------------------------------------------------------------------ mises à jour
+    def _auto_update_check(self):
+        mode = upd.settings().get("update_mode", "ask")
+        if mode == "off" or not upd.due(1): return
+        def run():
+            try:
+                v, notes = upd.check()
+                if upd.is_newer(v): self.q.put(("upd_found", v, notes, mode))
+            except Exception as e:
+                self.q.put(("log", "Vérification des mises à jour impossible : %s" % e))
+        threading.Thread(target=run, daemon=True).start()
+
+    def _on_update_found(self, v, notes, mode):
+        self.upd_btn.configure(text="⬆ Mise à jour %s" % v, fg_color=("#2f9e44", "#2f9e44"), text_color="white")
+        self._log("Nouvelle version de SubSync disponible : %s (vous avez la %s)." % (v, VERSION))
+        if mode == "auto":
+            if self.worker: self._log("  elle sera installée à la fin du traitement en cours."); self._pending_update = True; return
+            self._install_update()
+        else:
+            self.open_updates(found=(v, notes))
+
+    def _install_update(self, win=None):
+        if self.worker:
+            messagebox.showinfo("SubSync", "Attendez la fin du traitement en cours (ou arrêtez-le) avant de mettre à jour."); return
+        self._log("Mise à jour de SubSync…")
+        def run():
+            try:
+                new, _ = upd.install(log=lambda m: self.q.put(("log", "  " + m)))
+                self.q.put(("upd_done", new))
+            except Exception as e:
+                self.q.put(("log", "  mise à jour impossible : %s" % e))
+        threading.Thread(target=run, daemon=True).start()
+        if win: win.destroy()
+
+    def _after_update(self, new):
+        self.upd_btn.configure(text="Mises à jour…", fg_color="transparent", text_color=("gray10", "gray90"))
+        if messagebox.askyesno("SubSync", "SubSync %s est installé.\n\nRedémarrer SubSync maintenant pour l'utiliser ?" % new):
+            bat = os.path.join(APP_DIR, "SubSync.bat")
+            if os.name == "nt" and os.path.exists(bat):
+                subprocess.Popen(["cmd", "/c", "start", "", bat], cwd=APP_DIR, creationflags=0x08000000)
+            self.destroy()
+
+    def open_updates(self, found=None):
+        w = ctk.CTkToplevel(self); w.title("Mises à jour de SubSync"); w.geometry("560x560"); w.transient(self); w.grab_set()
+        st = upd.settings()
+        ctk.CTkLabel(w, text="Version installée : %s" % VERSION, font=ctk.CTkFont(size=15, weight="bold")).pack(anchor="w", padx=16, pady=(14, 4))
+        info = ctk.CTkLabel(w, text="", justify="left", wraplength=520); info.pack(anchor="w", padx=16)
+        notes = ctk.CTkTextbox(w, height=170, wrap="word"); notes.pack(fill="x", padx=16, pady=6); notes.configure(state="disabled")
+        bar = ctk.CTkFrame(w, fg_color="transparent"); bar.pack(fill="x", padx=16, pady=4)
+        inst = ctk.CTkButton(bar, text="Installer la mise à jour", state="disabled", command=lambda: self._install_update(w))
+        def show(v, txt):
+            if upd.is_newer(v):
+                info.configure(text="Nouvelle version disponible : %s" % v); inst.configure(state="normal")
+            else:
+                info.configure(text="SubSync est à jour (dernière version : %s)." % v); inst.configure(state="disabled")
+            notes.configure(state="normal"); notes.delete("1.0", "end"); notes.insert("1.0", txt or "(pas de notes de version)"); notes.configure(state="disabled")
+        def verify():
+            info.configure(text="Vérification…"); w.update()
+            try: show(*upd.check())
+            except Exception as e: info.configure(text="Vérification impossible : %s" % e)
+        ctk.CTkButton(bar, text="Vérifier maintenant", command=verify).pack(side="left")
+        inst.pack(side="left", padx=8)
+        ctk.CTkLabel(w, text="Quand une nouvelle version est disponible :").pack(anchor="w", padx=16, pady=(10, 0))
+        modes = {"Me demander": "ask", "L'installer automatiquement": "auto", "Ne pas vérifier": "off"}
+        mv = ctk.StringVar(value=next((k for k, v in modes.items() if v == st.get("update_mode", "ask")), "Me demander"))
+        ctk.CTkSegmentedButton(w, values=list(modes), variable=mv, command=lambda v: upd.save_settings(update_mode=modes[v])).pack(anchor="w", padx=16, pady=4)
+        ctk.CTkLabel(w, text="Clé d'accès GitHub (nécessaire seulement si le dépôt est privé) :").pack(anchor="w", padx=16, pady=(10, 0))
+        tok = ctk.CTkEntry(w, width=520, show="•"); tok.pack(anchor="w", padx=16, pady=4); tok.insert(0, st.get("github_token", ""))
+        tok.bind("<FocusOut>", lambda e: upd.save_settings(github_token=tok.get().strip()))
+        b2 = ctk.CTkFrame(w, fg_color="transparent"); b2.pack(fill="x", padx=16, pady=(12, 4))
+        def engines():
+            if self.worker: messagebox.showinfo("SubSync", "Attendez la fin du traitement en cours."); return
+            if not messagebox.askyesno("SubSync", "Mettre à jour les moteurs de calcul (transcription, traduction, carte graphique) ?\n\nLes versions actuelles sont sauvegardées et remises automatiquement si un test échoue."): return
+            w.destroy(); self._log("Mise à jour des moteurs de calcul…")
+            def run():
+                try:
+                    ok = upd.update_engines(log=lambda m: self.q.put(("log", "  " + m)))
+                    self.q.put(("log", "Moteurs à jour." if ok else "Moteurs : un problème a été détecté, les versions précédentes ont été remises."))
+                except Exception as e:
+                    self.q.put(("log", "  mise à jour des moteurs impossible : %s" % e))
+            threading.Thread(target=run, daemon=True).start()
+        def back():
+            if not messagebox.askyesno("SubSync", "Revenir à la version précédente de SubSync ?"): return
+            try:
+                v = upd.rollback(log=lambda m: self._log("  " + m)); w.destroy(); self._after_update(v)
+            except Exception as e: messagebox.showinfo("SubSync", str(e))
+        ctk.CTkButton(b2, text="Mettre à jour les moteurs", fg_color="transparent", border_width=1, text_color=("gray10", "gray90"), command=engines).pack(side="left")
+        ctk.CTkButton(b2, text="Revenir à la version précédente", fg_color="transparent", border_width=1, text_color=("gray10", "gray90"), command=back).pack(side="left", padx=8)
+        w.protocol("WM_DELETE_WINDOW", lambda: (upd.save_settings(github_token=tok.get().strip()), w.destroy()))
+        if found: show(*found)
+        else: w.after(200, verify)
+
     def _poll(self):
         try:
             while True:
@@ -761,6 +858,10 @@ class App(BaseTk):
                 elif kind == "err":
                     if m[1] in self.rows:
                         r = self.rows[m[1]]; r.state = "err"; r.error = m[2]; self._refresh(m[1])
+                elif kind == "upd_found":
+                    self._on_update_found(m[1], m[2], m[3])
+                elif kind == "upd_done":
+                    self._after_update(m[1])
                 elif kind == "fuspairs":
                     self._apply_content_pairs(m[1])
                 elif kind == "fusend":
@@ -769,6 +870,8 @@ class App(BaseTk):
                     if self.view == "merge": self._set_view("merge", force=True)
                 elif kind == "end":
                     self._timer_stop()
+                    if getattr(self, "_pending_update", False):
+                        self._pending_update = False; self.after(1500, self._install_update)
                     self.worker = None; self.go.configure(state="normal"); self.stop_btn.configure(state="disabled"); self.mode.configure(state="normal")
                     rs = [r for r in self.rows.values() if r.results]
                     nb_ok = sum(1 for r in rs if r.state == "ok"); nb_c = sum(1 for r in rs if r.state == "created")

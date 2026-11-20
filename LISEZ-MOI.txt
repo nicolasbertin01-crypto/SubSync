@@ -1,4 +1,4 @@
-﻿SubSync 1.5 - synchronisation automatique de sous-titres
+﻿SubSync 1.6 - synchronisation automatique de sous-titres
 ==========================================================
 
 INSTALLATION (une seule fois)
@@ -75,6 +75,15 @@ LES MÉTHODES
 
   « Seulement les lignes sélectionnées » (tous les modes) : ne traite que
   les lignes surlignées (Ctrl+clic / Maj+clic pour en choisir plusieurs).
+
+MISES À JOUR
+  Bouton « Mises à jour… » en haut à droite. SubSync vérifie une fois par jour
+  au démarrage s'il existe une nouvelle version (réglable : me demander /
+  installer automatiquement / ne pas vérifier). Vos réglages et votre
+  glossaire ne sont jamais écrasés ; l'ancienne version est sauvegardée
+  (« Revenir à la version précédente »). « Mettre à jour les moteurs » met à
+  jour les bibliothèques de calcul et remet les anciennes versions si un
+  test échoue.
 
 AMÉLIORATION VIDÉO (mode Améliorer)
   Installation (une fois) : double-cliquez « Installer l'amélioration vidéo.bat »

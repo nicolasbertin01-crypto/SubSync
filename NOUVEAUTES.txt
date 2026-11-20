@@ -1,0 +1,8 @@
+SubSync 1.6
+- Mises à jour automatiques : bouton « Mises à jour… » (vérification au démarrage, installation automatique ou sur demande, retour à la version précédente, mise à jour des moteurs de calcul avec retour arrière automatique en cas de problème).
+
+SubSync 1.5
+- Mode « Améliorer » : agrandissement par IA (Real-ESRGAN) + restauration des visages (GPEN / GFPGAN) sur la carte graphique, reprise après arrêt.
+
+SubSync 1.4
+- Fusion VF : choix des langues audio à garder, sous-titres français/anglais de la VF recopiés et recalés, reconnaissance des épisodes par le son, temps écoulé / restant.
