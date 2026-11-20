@@ -242,7 +242,9 @@ def run(job):
         if job.get("vstart", 0) > 0.001: a += ["-itsoffset", "%.3f" % job["vstart"]]
         a += ["-f", "concat", "-safe", "0", "-i", lst, "-i", src, "-map", "0:v:0", "-map", "1:a?"]
         if with_subs: a += ["-map", "1:s?"]
-        a += ["-map", "1:t?", "-c", "copy", "-map_metadata", "1", "-map_chapters", "1"]
+        # max_interleave_delta 0 : son et image strictement entrelacés dans le fichier (sinon tout le son peut
+        # se retrouver regroupé au début du fichier et les lecteurs n'en jouent rien)
+        a += ["-map", "1:t?", "-c", "copy", "-map_metadata", "1", "-map_chapters", "1", "-max_interleave_delta", "0"]
         if with_subs:
             for i, c in enumerate(job.get("sub_codecs", [])):
                 if c == "mov_text": a += ["-c:s:%d" % i, "srt"]

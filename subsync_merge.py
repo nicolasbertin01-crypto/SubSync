@@ -567,7 +567,7 @@ def merge_dub(hd_path, vf_path, out_dir=None, keep_langs=("eng",), log=print, pr
                 code = norm_lang(x) or "fre"
                 ttl = x["title"] or lang_name(code).capitalize()
                 args += ["-metadata:s:s:%d" % k, "language=%s" % code, "-metadata:s:s:%d" % k, "title=" + (ttl if "VF" in ttl else ttl + " (version VF)")]
-        args += ["-default_mode", "infer_no_subs", out]
+        args += ["-default_mode", "infer_no_subs", "-max_interleave_delta", "0", out]
         log("  assemblage du fichier final (copie de la vidéo, sans réencodage)…")
         _ff(args); prog(1.0)
         lvl = "ok" if pct >= 85 else ("warn" if pct >= 60 else "bad")

@@ -1,3 +1,6 @@
+SubSync 1.9.1
+- Amélioration vidéo : correction du son absent à la lecture. Le son était bien présent mais regroupé au début du fichier au lieu d'être réparti avec l'image ; les lecteurs n'en jouaient rien. Le son et l'image sont maintenant strictement entrelacés (même précaution ajoutée à la Fusion VF).
+
 SubSync 1.9
 - Amélioration vidéo : nouvelle option « Nettoyage de la source (avant l'IA) » : Aucun / Léger / Fort. Atténue les blocs de compression et le fourmillement de la vidéo d'origine avant l'agrandissement, pour que l'IA ne les accentue pas (utile pour les épisodes très compressés, surtout dans les scènes en mouvement). Revers : image un peu plus douce.
 
