@@ -1,0 +1,13 @@
+# Glossaire SubSync — utilisé par le mode « Créer des sous-titres »
+#
+# Une règle par ligne :   terme anglais = traduction imposée
+#   ex.  Searcher = Explorateur      (le mot anglais est remplacé avant traduction)
+# Correction après traduction : commencez par ~
+#   ex.  ~le Chercheur = l'Explorateur
+# Les lignes qui commencent par # sont ignorées. Majuscules/minuscules indifférentes.
+
+# --- Buck Rogers au XXVe siècle ---
+Searcher = Explorateur
+~le Chercheur = l'Explorateur
+~Chercheur = Explorateur
+contexte = Série « Buck Rogers au XXVe siècle » (1981). Le capitaine Buck Rogers, astronaute du XXe siècle, voyage à bord du vaisseau terrien l'Explorateur avec le colonel Wilma Deering, Hawk (homme-oiseau), l'amiral Asimov, le Dr Goodfellow, et les robots Crichton et Twiki. Buck tutoie Wilma, Hawk et Twiki ; tout le monde vouvoie l'amiral, le docteur et les inconnus ; les étrangers âgés sont vouvoyés.

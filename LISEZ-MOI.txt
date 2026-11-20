@@ -1,0 +1,129 @@
+﻿SubSync 1.5 - synchronisation automatique de sous-titres
+==========================================================
+
+INSTALLATION (une seule fois)
+  1. Placez ce dossier SubSync là où vous voulez le garder (ex. Documents).
+     Ne le déplacez plus ensuite : le raccourci pointe dessus.
+  2. Double-cliquez sur « Installer SubSync.bat ».
+     Si Windows affiche « Windows a protégé votre ordinateur », cliquez sur
+     « Informations complémentaires » puis « Exécuter quand même ».
+     L'installation télécharge Python et les bibliothèques (~400 Mo, 3 à 5 min).
+  3. Un raccourci « SubSync » apparaît sur le Bureau.
+
+UTILISATION
+  1. Glissez dans la fenêtre vos .srt et vos vidéos (.mkv, .mka, .mp4...),
+     ou un dossier entier d'épisodes. SubSync associe chaque .srt à sa vidéo
+     d'après le numéro d'épisode (S02E05, 2x05...) ou le nom.
+     Un .srt qui couvre deux épisodes (ex. « 2x03-04 ») est associé aux deux
+     vidéos. Sinon : sélectionnez la ligne puis « Associer une vidéo... ».
+  2. Cliquez sur « Lancer la synchronisation ».
+  3. Le fichier obtenu porte le nom de la vidéo + « .fr.srt », à côté de la
+     vidéo (ou dans le dossier choisi dans les réglages).
+     Le .srt d'origine n'est jamais modifié.
+
+LES MÉTHODES
+  Automatique  méthode simple d'abord, avancée si le résultat est douteux ou
+               si un .srt couvre plusieurs vidéos. Recommandé.
+  Simple       décalage, vitesse (23,976 / 25 i/s...) et coupures, à partir de
+               la voix. 1 à 2 minutes par épisode.
+  Avancé       transcription de l'audio + traduction des sous-titres, puis
+               appariement réplique par réplique. Pour les montages
+               différents (scènes ajoutées, supprimées ou déplacées).
+               5 à 10 minutes par épisode. Les répliques qui n'existent pas
+               dans la vidéo sont retirées.
+
+  Créer        crée des sous-titres à partir de l'audio seul (pas besoin de
+               .srt) : transcription de l'audio anglais puis traduction
+               automatique en français. Horaires précis, traduction à relire :
+               le tutoiement/vouvoiement peut varier, et les noms inventés
+               peuvent être déformés -> corrigez-les dans le glossaire.
+               Transcription « rapide » ~10 min/épisode, « précise » ~30 min
+               (meilleure sur les noms et les passages bruyants).
+               Si un .fr.srt existe déjà, le nouveau fichier s'appelle
+               « ….fr.auto.srt » pour ne rien écraser.
+
+  Fusion VF    ajoute la voix française d'une vidéo (même de moins bonne
+               qualité) à la vidéo HD anglaise du même épisode. L'image HD
+               est copiée sans perte ; la VF est calée automatiquement
+               (vitesse PAL 25 i/s, décalage, coupures différentes). Là où
+               la VF n'a pas de son (scène absente), le son original est
+               utilisé. 2 à 5 min par épisode.
+               Glissez les deux versions de chaque épisode (un ou plusieurs
+               épisodes à la fois) : elles sont associées par numéro
+               d'épisode (S02E07...), la HD étant celle de plus haute
+               résolution. Si les noms ne permettent pas de les associer,
+               SubSync compare les bandes son (musique, bruitages) et
+               retrouve tout seul les mêmes épisodes (~10 s par vidéo).
+               Avant chaque fusion, il vérifie aussi que les deux vidéos
+               sont bien le même épisode et refuse sinon. Si une vidéo reste seule, sélectionnez-la puis
+               « Associer une vidéo… ». Résultat : « <nom HD> - VF.mkv »
+               avec la VF par défaut, puis la version originale, puis les
+               sous-titres de la HD.
+               « Garder aussi ces langues de la HD » : cochez les langues
+               à conserver en plus de la VF (Anglais par défaut). Les
+               autres sont retirées (ex. polonais). « Autres langues »
+               garde toutes celles qui ne sont pas dans la liste. Tout
+               décocher = VF seule. Le choix est mémorisé.
+               Sous-titres : ceux en français ou en anglais de la version
+               VF (texte ou image, forcés compris) sont recopiés dans le
+               fichier final, recalés sur la HD comme la voix. Ceux de la
+               HD sont gardés s'ils sont en français ou dans une langue
+               cochée ; les autres (polonais…) sont retirés.
+
+  Pendant le traitement, le temps écoulé (épisode en cours et total) et
+  une estimation du temps restant s'affichent à droite de la barre.
+
+  « Seulement les lignes sélectionnées » (tous les modes) : ne traite que
+  les lignes surlignées (Ctrl+clic / Maj+clic pour en choisir plusieurs).
+
+AMÉLIORATION VIDÉO (mode Améliorer)
+  Installation (une fois) : double-cliquez « Installer l'amélioration vidéo.bat »
+  (~700 Mo : moteur de calcul pour la carte graphique + modèles de visages).
+  Pour chaque vidéo : agrandissement par IA (Real-ESRGAN) mélangé à l'image
+  d'origine pour un rendu naturel, léger renforcement des détails, puis
+  restauration des visages (détection SCRFD + GPEN ou GFPGAN).
+  Réglages :
+    Rendu       Naturel / Équilibré (conseillé) / Lissé (sources bruitées)
+    Résolution  1080p ou 720p (les proportions d'origine sont gardées)
+    Visages     Détaillés (GPEN, plus net) / Naturels (GFPGAN, plus doux) /
+                pas de retouche ; « Force » = part du visage retouché
+                (trop fort = effet « masque » ; 50-60 % conseillé)
+  Sons, sous-titres, chapitres : copiés tels quels. Résultat « nom - HD.mkv ».
+  Durée : environ 30 min à 1 h 30 par épisode sur une bonne carte graphique.
+  « Arrêter » puis relancer : le travail reprend au dernier tronçon terminé
+  (dossier caché « .subsync_hd_… » à côté de la vidéo, supprimé à la fin).
+
+TRADUCTION PAR IA LOCALE (mode Créer, recommandé)
+  Double-cliquez une fois sur « Installer l'IA de traduction.bat » :
+  il télécharge le moteur llama.cpp (pour votre carte graphique) et le modèle
+  Mistral Small 3.2 24B (14,3 Go). Ensuite, dans le mode « Créer », choisissez
+  « IA locale (qualité) ». L'IA traduit par paquets en voyant la scène :
+  tutoiement / vouvoiement cohérent, phrases plus naturelles, noms corrigés
+  d'après le contexte. Chaque traduction est vérifiée (elle doit correspondre
+  à la bonne réplique) ; en cas de doute, la traduction standard prend le
+  relais pour la réplique concernée. Compter 10 à 20 min de plus par épisode.
+
+GLOSSAIRE (mode Créer)
+  Bouton « Glossaire… » : une règle par ligne.
+    Searcher = Explorateur          (terme anglais imposé avant traduction)
+    ~le Chercheur = l'Explorateur   (correction après traduction)
+  Exemple : si « Janovus » est transcrit « Genovis », ajoutez
+    Genovis = Janovus
+  Ligne « contexte = … » : décrivez la série et qui tutoie qui. L'IA locale
+  s'en sert (un exemple pour Buck Rogers est déjà dans le glossaire).
+
+ÉTATS
+  ✔ Bon          rien à faire.
+  ⚠ À vérifier   jetez un œil à un ou deux passages ; le réglage fin
+                 (−0,5 / −0,1 / +0,1 / +0,5 s) décale toute la ligne.
+  ✎ Créé         sous-titres créés par le mode Créer, à relire.
+  ✖ Douteux      essayez la méthode « Avancé », ou vérifiez que le .srt
+                 correspond bien à cette version de l'épisode.
+
+DÉSINSTALLER
+  Supprimez le dossier SubSync et le raccourci du Bureau. Rien d'autre
+  n'est installé sur le PC.
+
+Journal détaillé : dossier logs\subsync.log
+Composants : Silero VAD (MIT), alass (GPL-3.0), Whisper / faster-whisper (MIT),
+Opus-MT (CC-BY 4.0), FFmpeg (LGPL/GPL), uv (MIT/Apache).

@@ -1,0 +1,17 @@
+# environnements et données locales (créés par les installateurs)
+.venv/
+.venv_video/
+python/
+.uvcache/
+cache/
+logs/
+llm/
+bin/uv.exe
+models/video/gfpgan_1.4.onnx
+models/video/gpen_bfr_512.onnx
+models/video/scrfd_2.5g.onnx
+models/*__*/
+models/*--*/
+reglages.json
+__pycache__/
+*.pyc
