@@ -26,7 +26,7 @@ except Exception:
 import subsync_update as upd
 VERSION = upd.local_version() if upd.local_version() != "0" else "1.6"
 LANGS = ["fr", "en", "es", "de", "it", "pt", "nl"]
-ENH_PRESETS = {"Naturel (conseillé)": "naturel", "Équilibré": "equilibre", "Lissé (sources très bruitées)": "lisse"}
+ENH_PRESETS = {"Fidèle (conseillé)": "fidele", "Net": "net", "Lissé (sources très bruitées)": "lisse"}
 ENH_FACES = {"Naturels (GFPGAN, conseillé)": "gfpgan", "Détaillés (GPEN)": "gpen", "Ne pas retoucher les visages": ""}
 VIDEO_PY = os.path.join(APP_DIR, ".venv_video", "Scripts", "python.exe") if os.name == "nt" else os.environ.get("SUBSYNC_VIDEO_PY", sys.executable)
 
@@ -92,7 +92,7 @@ class App(BaseTk):
         super().__init__()
         ctk.set_appearance_mode("system")
         ctk.set_default_color_theme("blue")
-        self.title("SubSync %s — synchronisation automatique de sous-titres" % VERSION)
+        self.title("SubSync %s — synchronisation automatique de sous-titres et amélioration vidéo" % VERSION)
         self.geometry("1220x800"); self.minsize(1040, 680)
         ico = os.path.join(APP_DIR, "assets", "subsync.ico")
         if os.name == "nt" and os.path.exists(ico):
@@ -113,7 +113,7 @@ class App(BaseTk):
         self.grid_columnconfigure(0, weight=1); self.grid_rowconfigure(2, weight=1)
         head = ctk.CTkFrame(self, fg_color="transparent"); head.grid(row=0, column=0, sticky="ew", padx=18, pady=(14, 4))
         ctk.CTkLabel(head, text="SubSync", font=ctk.CTkFont(size=26, weight="bold")).pack(side="left")
-        ctk.CTkLabel(head, text="   Recalez vos sous-titres sur l'audio, automatiquement.",
+        ctk.CTkLabel(head, text="   Sous-titres recalés ou créés, voix française ajoutée, image améliorée.",
                      font=ctk.CTkFont(size=14), text_color=("gray35", "gray70")).pack(side="left", pady=(6, 0))
 
         bar = ctk.CTkFrame(self, fg_color="transparent"); bar.grid(row=1, column=0, sticky="ew", padx=18, pady=6)
@@ -206,10 +206,10 @@ class App(BaseTk):
         self.fus_row.grid_remove()
         # --- amélioration vidéo
         self.enh_row = ctk.CTkFrame(side, fg_color="transparent"); self.enh_row.grid(row=r, column=0, sticky="ew", padx=14, pady=(10, 0)); r += 1
-        es = self._load_settings().get("enhance2", {})
+        es = self._load_settings().get("enhance3", {})
         ctk.CTkLabel(self.enh_row, text="Rendu").grid(row=0, column=0, sticky="w")
         self.enh_preset = ctk.CTkComboBox(self.enh_row, values=list(ENH_PRESETS), width=170, command=lambda v: self._save_enh())
-        self.enh_preset.set(es.get("preset", "Naturel (conseillé)")); self.enh_preset.grid(row=1, column=0, sticky="w")
+        self.enh_preset.set(es.get("preset", "Fidèle (conseillé)")); self.enh_preset.grid(row=1, column=0, sticky="w")
         ctk.CTkLabel(self.enh_row, text="Résolution").grid(row=0, column=1, sticky="w", padx=(10, 0))
         self.enh_res = ctk.CTkComboBox(self.enh_row, values=["1080p", "720p"], width=85, command=lambda v: self._save_enh())
         self.enh_res.set(es.get("res", "1080p")); self.enh_res.grid(row=1, column=1, sticky="w", padx=(10, 0))
@@ -276,7 +276,7 @@ class App(BaseTk):
              "Simple": "Décalage, vitesse et coupures, à partir de la voix. Rapide (1 à 2 min par épisode).",
              "Avancé": "Transcription + traduction pour les montages différents : scènes déplacées ou absentes, .srt sur plusieurs épisodes. Plus lent (5 à 10 min par épisode) ; télécharge ~300 Mo de modèles la première fois.",
              "Créer": "Crée des sous-titres à partir de l'audio seul (transcription puis traduction automatique). Fonctionne aussi pour les vidéos sans .srt. Traduction automatique : relisez les passages importants. Utilisez le glossaire pour les noms et termes récurrents.",
-             "Améliorer": "Améliore l'image de vieilles vidéos : agrandissement par IA (Real-ESRGAN) mélangé à l'image d'origine pour garder un rendu naturel, puis restauration des visages. Sons, sous-titres et chapitres sont conservés. Calcul sur la carte graphique : compter environ 30 min à 1 h 30 par épisode. Arrêt possible à tout moment : la reprise repart où elle s'était arrêtée.",
+             "Améliorer": "Améliore l'image de vieilles vidéos : agrandissement par IA spécialisée vidéo réelle (LiveAction, fidèle aux textures), puis restauration douce des visages de face. Sons, sous-titres et chapitres sont conservés. Calcul sur la carte graphique : compter environ 1 h par épisode. Arrêt possible à tout moment : la reprise repart où elle s'était arrêtée.",
              "Fusion VF": "Ajoute la voix française d'une version (même de moins bonne qualité) à la vidéo HD d'une autre version, calée automatiquement (vitesse, décalage, coupures). L'image HD est copiée sans perte. Glissez les deux vidéos de chaque épisode : SubSync les associe par numéro d'épisode. 2 à 5 min par épisode."}
         self.mode_help.configure(text=t[self.mode.get()])
         m = self.mode.get()
@@ -312,7 +312,7 @@ class App(BaseTk):
             import json
             d = self._load_settings()
             self.enh_fstr_lbl.configure(text="%d %%" % round(float(self.enh_fstr.get()) * 100))
-            d["enhance2"] = dict(preset=self.enh_preset.get(), res=self.enh_res.get(), faces=self.enh_faces.get(), fstr=round(float(self.enh_fstr.get()), 2))
+            d["enhance3"] = dict(preset=self.enh_preset.get(), res=self.enh_res.get(), faces=self.enh_faces.get(), fstr=round(float(self.enh_fstr.get()), 2))
             with open(self.SETTINGS, "w", encoding="utf-8") as f: json.dump(d, f)
         except Exception:
             pass
@@ -628,7 +628,7 @@ class App(BaseTk):
         opts = dict(mode=MODES[self.mode.get()], sub_lang=self.sub_lang.get().strip() or "fr",
                     audio_lang=self.aud_lang.get().strip() or "en", out_dir=self.out_dir, quality=self.quality.get(),
                     translator="ia" if self.translator.get().startswith("IA") else "standard", keep_langs=[c for c, cb in self.keep_langs.items() if cb.get()],
-                    enh=dict(preset=ENH_PRESETS.get(self.enh_preset.get(), "naturel"), target_h=1080 if self.enh_res.get() == "1080p" else 720,
+                    enh=dict(preset=ENH_PRESETS.get(self.enh_preset.get(), "fidele"), target_h=1080 if self.enh_res.get() == "1080p" else 720,
                              faces=ENH_FACES.get(self.enh_faces.get(), "gfpgan"), face_strength=round(float(self.enh_fstr.get()), 2)))
         self.go.configure(state="disabled"); self.stop_btn.configure(state="normal"); self.mode.configure(state="disabled")
         self.prog.set(0); self._timer_start(len(todo))
@@ -712,7 +712,7 @@ class App(BaseTk):
         stem = os.path.splitext(os.path.basename(video))[0]
         out = os.path.join(d, stem + " - HD.mkv")
         if os.path.abspath(out) == os.path.abspath(video): out = os.path.join(d, stem + " - HD (2).mkv")
-        tag = "v2_%s_%d_%s_%d" % (e["preset"], e["target_h"], e["faces"] or "sans", int(e["face_strength"] * 100))
+        tag = "v3_%s_%d_%s_%d" % (e["preset"], e["target_h"], e["faces"] or "sans", int(e["face_strength"] * 100))
         work = os.path.join(d, ".subsync_hd_" + stem + "_" + tag)
         job = dict(info, ffmpeg=eng.ffmpeg_exe(), src=video, out=out, work=work, sharpen=0.35, **e)
         os.makedirs(work, exist_ok=True)

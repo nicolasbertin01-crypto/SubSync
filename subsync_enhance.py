@@ -13,10 +13,20 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 MODELS = os.path.join(HERE, "models", "video")
 SEG = int(os.environ.get("SUBSYNC_SEG", "2400"))   # images par tronçon (~1 min 40 à 24 i/s)
 
-PRESETS = {                      # modèle, part de l'IA dans le mélange
-    "naturel": ("upscale_naturel.onnx", 0.55),
-    "equilibre": ("upscale_equilibre.onnx", 0.70),
-    "lisse": ("upscale_lisse.onnx", 0.85),
+JCJ = "https://raw.githubusercontent.com/jcj83429/upscaling/"
+PRESETS = {
+    # modèles « LiveAction » de jcj83429 (licence CC BY-NC-SA 4.0, usage personnel) : entraînés pour la vidéo
+    # réelle (compression, flou, halos, IVTC), agrandissement x2 fidèle aux textures (peau, grain).
+    "fidele": dict(kind="raw2x", file="2xLiveActionV1_SPAN.onnx", mix=1.0,
+                   url=JCJ + "f73a3a02874360ec6ced18f8bdd8e43b5d7bba57/2xLiveActionV1_SPAN/2xLiveActionV1_SPAN_490000.onnx",
+                   sha="bfa72f3c6347076aed140d0836cee30c27ea434c047beeaf9466469483836ecc"),
+    "net": dict(kind="raw2x", file="2xLiveActionHeavy_ESRGAN_lite_f16.onnx", mix=1.0,
+                url=JCJ + "9c785a8c63ee33742797e4ee354dbcf505fc7e1d/2xLiveActionHeavy_ESRGAN_lite/2xLiveActionHeavy_ESRGAN_lite_f16.onnx",
+                sha="3184b023f0892f0d4441f02a1376d8308f36223fc0ea829e201db0fe3aa20fd6"),
+    # Real-ESRGAN general x4v3 (graphe SubSync) : plus lissant, pour les sources très bruitées
+    "lisse": dict(kind="graph", file="upscale_lisse.onnx", mix=0.85),
+    "naturel": dict(kind="graph", file="upscale_naturel.onnx", mix=0.55),
+    "equilibre": dict(kind="graph", file="upscale_equilibre.onnx", mix=0.70),
 }
 BITRATE_M = 10                   # Mb/s pour le 1080p (réduit au prorata pour le 720p)
 FACE_MODELS = {"gfpgan": "gfpgan_1.4.onnx", "gpen": "gpen_bfr_512.onnx"}
@@ -35,6 +45,23 @@ def providers():
     av = ort.get_available_providers()
     if "DmlExecutionProvider" in av: return ["DmlExecutionProvider", "CPUExecutionProvider"], "carte graphique (DirectML)"
     return ["CPUExecutionProvider"], "processeur (TRÈS lent : installez l'amélioration vidéo pour utiliser la carte graphique)"
+
+
+def ensure_model(spec):
+    """Télécharge le modèle s'il manque (et vérifie son empreinte)."""
+    import hashlib, urllib.request
+    path = os.path.join(MODELS, spec["file"])
+    if os.path.exists(path): return path
+    if "url" not in spec: raise RuntimeError("modèle manquant : %s" % spec["file"])
+    log("  téléchargement du modèle %s…" % spec["file"])
+    tmp = path + ".part"
+    with urllib.request.urlopen(urllib.request.Request(spec["url"], headers={"User-Agent": "SubSync"}), timeout=300) as r, open(tmp, "wb") as f:
+        shutil.copyfileobj(r, f)
+    h = hashlib.sha256(open(tmp, "rb").read()).hexdigest()
+    if spec.get("sha") and h != spec["sha"]:
+        os.remove(tmp); raise RuntimeError("modèle %s corrompu (empreinte inattendue)" % spec["file"])
+    os.replace(tmp, path)
+    return path
 
 
 def session(path, prov):
@@ -71,10 +98,13 @@ def run(job):
     total = int(job["frames"])
     TH = int(job["target_h"]); TW = int(round(TH * job["dar"] / 2)) * 2
     prov, where = providers()
-    model, mix = PRESETS[job.get("preset", "equilibre")]
+    spec = PRESETS.get(job.get("preset", "fidele"), PRESETS["fidele"]); mix = spec["mix"]
     log("Amélioration : %s → %d×%d (%s, réglage « %s »), calcul sur %s" % (os.path.basename(src), TW, TH,
         "visages " + job["faces"] if job.get("faces") else "sans visages", job.get("preset"), where))
-    up = session(os.path.join(MODELS, model), prov)
+    import cv2
+    up = session(ensure_model(spec), prov)
+    up_in = up.get_inputs()[0].name
+    up_f16 = "float16" in up.get_inputs()[0].type
     fr = None
     if job.get("faces"):
         sys.path.insert(0, HERE)
@@ -130,9 +160,19 @@ def run(job):
             while True:
                 b = q_in.get()
                 if b is None or werr: break
-                x = (np.frombuffer(b, np.uint8).reshape(H, W, 3).astype(np.float32) / 255.0).transpose(2, 0, 1)[None]
-                y = up.run(None, {"input": x, "mix": mixa, "sizes": sizes})[0][0]
-                img = (y.transpose(1, 2, 0) * 255.0 + 0.5).astype(np.uint8)
+                src8 = np.frombuffer(b, np.uint8).reshape(H, W, 3)
+                x = (src8.astype(np.float32) / 255.0).transpose(2, 0, 1)[None]
+                if spec["kind"] == "graph":
+                    y = up.run(None, {"input": x, "mix": mixa, "sizes": sizes})[0][0]
+                    img = (y.transpose(1, 2, 0) * 255.0 + 0.5).astype(np.uint8)
+                else:
+                    y = up.run(None, {up_in: x.astype(np.float16) if up_f16 else x})[0][0].astype(np.float32)
+                    img = (np.clip(y.transpose(1, 2, 0), 0, 1) * 255.0 + 0.5).astype(np.uint8)
+                    if img.shape[1] != TW or img.shape[0] != TH:
+                        img = cv2.resize(img, (TW, TH), interpolation=cv2.INTER_AREA if img.shape[1] > TW else cv2.INTER_CUBIC)
+                    if mix < 0.999:
+                        base = cv2.resize(src8, (TW, TH), interpolation=cv2.INTER_CUBIC)
+                        img = cv2.addWeighted(img, mix, base, 1 - mix, 0)
                 if fr is not None:
                     img, nf = fr.restore(img, fstr); nf_seg += nf
                 q_out.put(np.ascontiguousarray(img).tobytes()); got += 1

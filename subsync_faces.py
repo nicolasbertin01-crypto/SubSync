@@ -70,7 +70,7 @@ class FaceRestorer:
             if yaw >= self.yaw_max or tilt > 0.6 or re_[0] <= le[0]: continue
             k = strength * (1.0 if yaw <= self.yaw_full else (self.yaw_max - yaw) / (self.yaw_max - self.yaw_full))
             if k <= 0.02: continue
-            if out is None: out = rgb.astype(np.float32)
+            if out is None: out = rgb.copy()
             M, _ = cv2.estimateAffinePartial2D(kps.astype(np.float32), FFHQ_512, method=cv2.LMEDS)
             if M is None: continue
             crop = cv2.warpAffine(rgb, M, (512, 512), borderMode=cv2.BORDER_REPLICATE)
@@ -79,8 +79,15 @@ class FaceRestorer:
             y = ((np.clip(y, -1, 1) + 1) / 2 * 255).transpose(1, 2, 0)
             IM = cv2.invertAffineTransform(M)
             h, w = rgb.shape[:2]
-            back = cv2.warpAffine(y, IM, (w, h), borderMode=cv2.BORDER_REPLICATE)
-            m = cv2.warpAffine(self.mask, IM, (w, h))[..., None] * k
-            out = out * (1 - m) + back * m; n += 1
+            # on ne recolle que dans le rectangle du visage (bien plus rapide que l'image entière)
+            c = np.array([[0, 0, 1], [512, 0, 1], [0, 512, 1], [512, 512, 1]], np.float32) @ IM.T
+            x0, y0 = max(0, int(c[:, 0].min()) - 2), max(0, int(c[:, 1].min()) - 2)
+            x1, y1 = min(w, int(c[:, 0].max()) + 3), min(h, int(c[:, 1].max()) + 3)
+            if x1 <= x0 or y1 <= y0: continue
+            IM2 = IM.copy(); IM2[0, 2] -= x0; IM2[1, 2] -= y0
+            back = cv2.warpAffine(y, IM2, (x1 - x0, y1 - y0), borderMode=cv2.BORDER_REPLICATE)
+            m = cv2.warpAffine(self.mask, IM2, (x1 - x0, y1 - y0))[..., None] * k
+            roi = out[y0:y1, x0:x1].astype(np.float32)
+            out[y0:y1, x0:x1] = np.clip(roi * (1 - m) + back * m + 0.5, 0, 255).astype(np.uint8); n += 1
         if out is None: return rgb, 0
-        return np.clip(out + 0.5, 0, 255).astype(np.uint8), n
+        return out, n

@@ -1,4 +1,4 @@
-﻿SubSync 1.7 - synchronisation automatique de sous-titres
+﻿SubSync 1.8 - synchronisation automatique de sous-titres
 ==========================================================
 
 INSTALLATION (une seule fois)
@@ -88,18 +88,20 @@ MISES À JOUR
 AMÉLIORATION VIDÉO (mode Améliorer)
   Installation (une fois) : double-cliquez « Installer l'amélioration vidéo.bat »
   (~700 Mo : moteur de calcul pour la carte graphique + modèles de visages).
-  Pour chaque vidéo : agrandissement par IA (Real-ESRGAN) mélangé à l'image
-  d'origine pour un rendu naturel, léger renforcement des détails, puis
-  restauration des visages (détection SCRFD + GPEN ou GFPGAN).
+  Pour chaque vidéo : agrandissement par IA spécialisée vidéo réelle
+  (modèles LiveAction V1 / Heavy de jcj83429, licence CC BY-NC-SA 4.0,
+  usage personnel ; ou Real-ESRGAN pour « Lissé »), léger renforcement des
+  détails, puis restauration des visages (détection SCRFD + GFPGAN ou GPEN).
   Réglages :
-    Rendu       Naturel (conseillé) / Équilibré / Lissé (sources bruitées)
+    Rendu       Fidèle (conseillé, garde textures et grain) / Net (plus
+                piqué, peut un peu scintiller) / Lissé (sources très bruitées)
     Résolution  1080p ou 720p (les proportions d'origine sont gardées)
     Visages     Naturels (GFPGAN, conseillé) / Détaillés (GPEN, plus net mais
                 peut changer les traits) / pas de retouche ; « Force » = part
                 du visage retouché (30-45 % conseillé). Seuls les visages
                 presque de face sont retouchés, les profils restent intacts.
   Sons, sous-titres, chapitres : copiés tels quels. Résultat « nom - HD.mkv ».
-  Durée : environ 30 min à 1 h 30 par épisode sur une bonne carte graphique.
+  Durée : environ 1 h par épisode de 45 min sur une bonne carte graphique.
   « Arrêter » puis relancer : le travail reprend au dernier tronçon terminé
   (dossier caché « .subsync_hd_… » à côté de la vidéo, supprimé à la fin).
 

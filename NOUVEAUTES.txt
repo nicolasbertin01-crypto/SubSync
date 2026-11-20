@@ -1,3 +1,9 @@
+SubSync 1.8
+- Amélioration vidéo : nouveaux modèles « LiveAction » (2026), spécialisés pour les vidéos réelles (DVD, télé) : textures de peau et détails conservés au lieu de l'effet lissé. Rendus : Fidèle (conseillé), Net, Lissé.
+- Environ 2 fois plus rapide (modèle plus léger + retouche des visages limitée à leur zone).
+- Les modèles sont téléchargés automatiquement à la première utilisation.
+- Titre de la fenêtre : « … et amélioration vidéo ».
+
 SubSync 1.7
 - Amélioration vidéo : les visages de profil ou trop tournés ne sont plus retouchés (c'était la cause des visages déformés). Retouche dégressive pour les trois-quarts.
 - Nouveaux réglages conseillés : rendu « Naturel » (plus fidèle à l'original), visages « Naturels (GFPGAN) » à 40 %.
