@@ -6,6 +6,8 @@ APP_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO = "nicolasbertin01-crypto/subsync"
 BRANCH = "main"
 API = "https://api.github.com/repos/%s" % REPO
+RAW = "https://raw.githubusercontent.com/%s/%s/" % (REPO, BRANCH)          # dépôt public : sans limite d'appels
+ZIP = "https://codeload.github.com/%s/zip/refs/heads/%s" % (REPO, BRANCH)
 # fichiers personnels jamais écrasés s'ils existent déjà
 KEEP_IF_EXISTS = {"glossaire.txt", "reglages.json"}
 # dossiers locaux jamais touchés
@@ -48,10 +50,21 @@ def _req(url, raw=False, timeout=30):
     return urllib.request.urlopen(urllib.request.Request(url, headers=h), timeout=timeout)
 
 
+def _get(name, raw=True, timeout=30):
+    """Fichier du dépôt : adresse publique directe, sinon API GitHub (avec la clé d'accès si dépôt privé)."""
+    if not settings().get("github_token", "").strip():
+        try:
+            return urllib.request.urlopen(urllib.request.Request(
+                (ZIP if name is None else RAW + name), headers={"User-Agent": "SubSync"}), timeout=timeout)
+        except urllib.error.HTTPError as e:
+            if e.code != 404: raise
+    return _req(API + "/zipball/" + BRANCH if name is None else API + "/contents/%s?ref=%s" % (name, BRANCH), raw=raw, timeout=timeout)
+
+
 def check():
     """Renvoie (version distante, notes) ; lève une exception explicite en cas de problème d'accès."""
     try:
-        v = _req(API + "/contents/VERSION?ref=" + BRANCH, raw=True).read().decode("utf-8").strip()
+        v = _get("VERSION").read().decode("utf-8").strip()
     except urllib.error.HTTPError as e:
         if e.code in (401, 403, 404):
             raise RuntimeError("accès au dépôt refusé : dépôt privé sans clé d'accès valide (voir « Clé d'accès GitHub »)")
@@ -59,7 +72,7 @@ def check():
     except urllib.error.URLError as e:
         raise RuntimeError("pas de connexion à GitHub (%s)" % e.reason)
     notes = ""
-    try: notes = _req(API + "/contents/NOUVEAUTES.txt?ref=" + BRANCH, raw=True).read().decode("utf-8")
+    try: notes = _get("NOUVEAUTES.txt").read().decode("utf-8")
     except Exception: pass
     save_settings(last_check=time.time())
     return v, notes
@@ -77,7 +90,7 @@ def install(log=print):
     try:
         log("téléchargement de la mise à jour…")
         zp = os.path.join(tmp, "maj.zip")
-        with _req(API + "/zipball/" + BRANCH, timeout=300) as r, open(zp, "wb") as f: shutil.copyfileobj(r, f)
+        with _get(None, timeout=300) as r, open(zp, "wb") as f: shutil.copyfileobj(r, f)
         with zipfile.ZipFile(zp) as z: z.extractall(tmp)
         roots = [d for d in os.listdir(tmp) if os.path.isdir(os.path.join(tmp, d))]
         if len(roots) != 1: raise RuntimeError("archive de mise à jour inattendue")
