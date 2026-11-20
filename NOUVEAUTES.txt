@@ -1,3 +1,6 @@
+SubSync 1.9
+- Amélioration vidéo : nouvelle option « Nettoyage de la source (avant l'IA) » : Aucun / Léger / Fort. Atténue les blocs de compression et le fourmillement de la vidéo d'origine avant l'agrandissement, pour que l'IA ne les accentue pas (utile pour les épisodes très compressés, surtout dans les scènes en mouvement). Revers : image un peu plus douce.
+
 SubSync 1.8.1
 - Amélioration vidéo : les visages trop petits (plans larges) et les têtes très levées ou baissées ne sont plus retouchés : la retouche y inventait des traits et accentuait les blocs de compression en mouvement.
 

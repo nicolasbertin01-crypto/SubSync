@@ -29,6 +29,11 @@ PRESETS = {
     "equilibre": dict(kind="graph", file="upscale_equilibre.onnx", mix=0.70),
 }
 BITRATE_M = 10                   # Mb/s pour le 1080p (réduit au prorata pour le 720p)
+# nettoyage de la source avant l'IA (filtres ffmpeg) : blocs de compression puis léger débruitage temporel
+PRECLEAN = {
+    "leger": "deblock=filter=weak:block=8,hqdn3d=1.0:1.0:2.5:2.5",
+    "fort": "deblock=filter=strong:block=8,hqdn3d=1.5:1.5:3.5:3.5",
+}
 FACE_MODELS = {"gfpgan": "gfpgan_1.4.onnx", "gpen": "gpen_bfr_512.onnx"}
 NOWIN = 0x08000000 if os.name == "nt" else 0
 
@@ -99,8 +104,9 @@ def run(job):
     TH = int(job["target_h"]); TW = int(round(TH * job["dar"] / 2)) * 2
     prov, where = providers()
     spec = PRESETS.get(job.get("preset", "fidele"), PRESETS["fidele"]); mix = spec["mix"]
-    log("Amélioration : %s → %d×%d (%s, réglage « %s »), calcul sur %s" % (os.path.basename(src), TW, TH,
-        "visages " + job["faces"] if job.get("faces") else "sans visages", job.get("preset"), where))
+    log("Amélioration : %s → %d×%d (%s, réglage « %s »%s), calcul sur %s" % (os.path.basename(src), TW, TH,
+        "visages " + job["faces"] if job.get("faces") else "sans visages", job.get("preset"),
+        ", nettoyage " + job["preclean"] if job.get("preclean") else "", where))
     import cv2
     up = session(ensure_model(spec), prov)
     up_in = up.get_inputs()[0].name
@@ -131,7 +137,9 @@ def run(job):
         t0 = k * SEG * fps_d / fps_n
         if os.environ.get("SUBSYNC_FAIL_ONCE") == str(k) and not stats.get("failed"):   # test de la reprise automatique
             stats["failed"] = True; raise OSError("panne simulée")
-        dec = subprocess.Popen([ff, "-v", "error", "-ss", "%.6f" % t0, "-i", src, "-map", "0:v:0"] + ([] if last else ["-frames:v", str(n)]) +
+        pre = PRECLEAN.get(job.get("preclean") or "")
+        dec = subprocess.Popen([ff, "-v", "error", "-ss", "%.6f" % t0, "-i", src, "-map", "0:v:0"] + (["-vf", pre] if pre else []) +
+                               ([] if last else ["-frames:v", str(n)]) +
                                ["-f", "rawvideo", "-pix_fmt", "rgb24", "-"], stdout=subprocess.PIPE, creationflags=NOWIN)
         encp = subprocess.Popen([ff, "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", "%dx%d" % (TW, TH),
                                  "-r", "%d/%d" % (fps_n, fps_d), "-i", "-", "-vf", vf] + enc +
