@@ -26,8 +26,8 @@ except Exception:
 import subsync_update as upd
 VERSION = upd.local_version() if upd.local_version() != "0" else "1.6"
 LANGS = ["fr", "en", "es", "de", "it", "pt", "nl"]
-ENH_PRESETS = {"Naturel": "naturel", "Équilibré (conseillé)": "equilibre", "Lissé (sources très bruitées)": "lisse"}
-ENH_FACES = {"Détaillés (GPEN)": "gpen", "Naturels (GFPGAN)": "gfpgan", "Ne pas retoucher les visages": ""}
+ENH_PRESETS = {"Naturel (conseillé)": "naturel", "Équilibré": "equilibre", "Lissé (sources très bruitées)": "lisse"}
+ENH_FACES = {"Naturels (GFPGAN, conseillé)": "gfpgan", "Détaillés (GPEN)": "gpen", "Ne pas retoucher les visages": ""}
 VIDEO_PY = os.path.join(APP_DIR, ".venv_video", "Scripts", "python.exe") if os.name == "nt" else os.environ.get("SUBSYNC_VIDEO_PY", sys.executable)
 
 
@@ -206,20 +206,20 @@ class App(BaseTk):
         self.fus_row.grid_remove()
         # --- amélioration vidéo
         self.enh_row = ctk.CTkFrame(side, fg_color="transparent"); self.enh_row.grid(row=r, column=0, sticky="ew", padx=14, pady=(10, 0)); r += 1
-        es = self._load_settings().get("enhance", {})
+        es = self._load_settings().get("enhance2", {})
         ctk.CTkLabel(self.enh_row, text="Rendu").grid(row=0, column=0, sticky="w")
         self.enh_preset = ctk.CTkComboBox(self.enh_row, values=list(ENH_PRESETS), width=170, command=lambda v: self._save_enh())
-        self.enh_preset.set(es.get("preset", "Équilibré (conseillé)")); self.enh_preset.grid(row=1, column=0, sticky="w")
+        self.enh_preset.set(es.get("preset", "Naturel (conseillé)")); self.enh_preset.grid(row=1, column=0, sticky="w")
         ctk.CTkLabel(self.enh_row, text="Résolution").grid(row=0, column=1, sticky="w", padx=(10, 0))
         self.enh_res = ctk.CTkComboBox(self.enh_row, values=["1080p", "720p"], width=85, command=lambda v: self._save_enh())
         self.enh_res.set(es.get("res", "1080p")); self.enh_res.grid(row=1, column=1, sticky="w", padx=(10, 0))
         ctk.CTkLabel(self.enh_row, text="Visages").grid(row=2, column=0, sticky="w", pady=(8, 0))
         self.enh_faces = ctk.CTkComboBox(self.enh_row, values=list(ENH_FACES), width=265, command=lambda v: self._save_enh())
-        self.enh_faces.set(es.get("faces", "Détaillés (GPEN)")); self.enh_faces.grid(row=3, column=0, columnspan=2, sticky="w")
+        self.enh_faces.set(es.get("faces", "Naturels (GFPGAN, conseillé)")); self.enh_faces.grid(row=3, column=0, columnspan=2, sticky="w")
         ctk.CTkLabel(self.enh_row, text="Force sur les visages").grid(row=4, column=0, sticky="w", pady=(8, 0))
         self.enh_fstr = ctk.CTkSlider(self.enh_row, from_=0.2, to=1.0, number_of_steps=16, width=170, command=lambda v: self._save_enh())
-        self.enh_fstr.set(es.get("fstr", 0.55)); self.enh_fstr.grid(row=5, column=0, columnspan=2, sticky="w")
-        self.enh_fstr_lbl = ctk.CTkLabel(self.enh_row, text="%d %%" % round(es.get("fstr", 0.55) * 100)); self.enh_fstr_lbl.grid(row=5, column=1, sticky="e")
+        self.enh_fstr.set(es.get("fstr", 0.4)); self.enh_fstr.grid(row=5, column=0, columnspan=2, sticky="w")
+        self.enh_fstr_lbl = ctk.CTkLabel(self.enh_row, text="%d %%" % round(es.get("fstr", 0.4) * 100)); self.enh_fstr_lbl.grid(row=5, column=1, sticky="e")
         self.enh_help = ctk.CTkLabel(self.enh_row, text="", text_color=("gray35", "gray65"), font=ctk.CTkFont(size=11), wraplength=262, justify="left")
         self.enh_help.grid(row=6, column=0, columnspan=2, sticky="w", pady=(6, 0))
         self.enh_row.grid_remove()
@@ -286,7 +286,7 @@ class App(BaseTk):
             self.out_title.configure(text="Enregistrer les vidéos" if m in ("Fusion VF", "Améliorer") else "Enregistrer les sous-titres")
             if m == "Améliorer":
                 self.enh_row.grid(); self.lang_frame.grid_remove()
-                self.enh_help.configure(text=("Résultat : « nom - HD.mkv ». Les visages sont retouchés au maximum à la force choisie (mélange avec l'original pour éviter l'effet « masque »)."
+                self.enh_help.configure(text=("Résultat : « nom - HD.mkv ». Seuls les visages presque de face sont retouchés (les profils sont laissés tels quels pour éviter les déformations). 30-45 % conseillé."
                                               if video_ready() else "Amélioration vidéo non installée : lancez une fois « Installer l'amélioration vidéo.bat » (~700 Mo)."))
             else: self.enh_row.grid_remove()
         if hasattr(self, "tree"):
@@ -312,7 +312,7 @@ class App(BaseTk):
             import json
             d = self._load_settings()
             self.enh_fstr_lbl.configure(text="%d %%" % round(float(self.enh_fstr.get()) * 100))
-            d["enhance"] = dict(preset=self.enh_preset.get(), res=self.enh_res.get(), faces=self.enh_faces.get(), fstr=round(float(self.enh_fstr.get()), 2))
+            d["enhance2"] = dict(preset=self.enh_preset.get(), res=self.enh_res.get(), faces=self.enh_faces.get(), fstr=round(float(self.enh_fstr.get()), 2))
             with open(self.SETTINGS, "w", encoding="utf-8") as f: json.dump(d, f)
         except Exception:
             pass
@@ -628,8 +628,8 @@ class App(BaseTk):
         opts = dict(mode=MODES[self.mode.get()], sub_lang=self.sub_lang.get().strip() or "fr",
                     audio_lang=self.aud_lang.get().strip() or "en", out_dir=self.out_dir, quality=self.quality.get(),
                     translator="ia" if self.translator.get().startswith("IA") else "standard", keep_langs=[c for c, cb in self.keep_langs.items() if cb.get()],
-                    enh=dict(preset=ENH_PRESETS.get(self.enh_preset.get(), "equilibre"), target_h=1080 if self.enh_res.get() == "1080p" else 720,
-                             faces=ENH_FACES.get(self.enh_faces.get(), "gpen"), face_strength=round(float(self.enh_fstr.get()), 2)))
+                    enh=dict(preset=ENH_PRESETS.get(self.enh_preset.get(), "naturel"), target_h=1080 if self.enh_res.get() == "1080p" else 720,
+                             faces=ENH_FACES.get(self.enh_faces.get(), "gfpgan"), face_strength=round(float(self.enh_fstr.get()), 2)))
         self.go.configure(state="disabled"); self.stop_btn.configure(state="normal"); self.mode.configure(state="disabled")
         self.prog.set(0); self._timer_start(len(todo))
         self.worker = threading.Thread(target=self._work, args=(todo, opts), daemon=True); self.worker.start()
@@ -712,7 +712,7 @@ class App(BaseTk):
         stem = os.path.splitext(os.path.basename(video))[0]
         out = os.path.join(d, stem + " - HD.mkv")
         if os.path.abspath(out) == os.path.abspath(video): out = os.path.join(d, stem + " - HD (2).mkv")
-        tag = "%s_%d_%s_%d" % (e["preset"], e["target_h"], e["faces"] or "sans", int(e["face_strength"] * 100))
+        tag = "v2_%s_%d_%s_%d" % (e["preset"], e["target_h"], e["faces"] or "sans", int(e["face_strength"] * 100))
         work = os.path.join(d, ".subsync_hd_" + stem + "_" + tag)
         job = dict(info, ffmpeg=eng.ffmpeg_exe(), src=video, out=out, work=work, sharpen=0.35, **e)
         os.makedirs(work, exist_ok=True)

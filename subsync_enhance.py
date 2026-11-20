@@ -18,6 +18,7 @@ PRESETS = {                      # modèle, part de l'IA dans le mélange
     "equilibre": ("upscale_equilibre.onnx", 0.70),
     "lisse": ("upscale_lisse.onnx", 0.85),
 }
+BITRATE_M = 10                   # Mb/s pour le 1080p (réduit au prorata pour le 720p)
 FACE_MODELS = {"gfpgan": "gfpgan_1.4.onnx", "gpen": "gpen_bfr_512.onnx"}
 NOWIN = 0x08000000 if os.name == "nt" else 0
 
@@ -46,9 +47,11 @@ def session(path, prov):
 
 def pick_encoder(ff):
     """Encodeur matériel AMD si disponible (rapide), sinon x264 sur le processeur."""
-    cands = [("hevc_amf", ["-c:v", "hevc_amf", "-quality", "quality", "-rc", "cqp", "-qp_i", "18", "-qp_p", "20"]),
-             ("hevc_nvenc", ["-c:v", "hevc_nvenc", "-preset", "p6", "-rc", "constqp", "-qp", "19"]),
-             ("hevc_qsv", ["-c:v", "hevc_qsv", "-global_quality", "20"]),
+    # débit élevé imposé : le mode « qualité constante » de certains pilotes donnait des fichiers trop compressés
+    rate = ["-b:v", "%dM" % BITRATE_M, "-maxrate", "%dM" % int(BITRATE_M * 1.6), "-bufsize", "%dM" % (BITRATE_M * 2)]
+    cands = [("hevc_amf", ["-c:v", "hevc_amf", "-quality", "quality", "-rc", "vbr_peak"] + rate),
+             ("hevc_nvenc", ["-c:v", "hevc_nvenc", "-preset", "p6", "-rc", "vbr"] + rate),
+             ("hevc_qsv", ["-c:v", "hevc_qsv"] + rate),
              ("libx264", ["-c:v", "libx264", "-preset", "medium", "-crf", "17"])]
     for name, args in cands:
         if name == "libx264": return name, args
@@ -77,7 +80,9 @@ def run(job):
         sys.path.insert(0, HERE)
         import subsync_faces
         fr = subsync_faces.FaceRestorer(os.path.join(MODELS, "scrfd_2.5g.onnx"), os.path.join(MODELS, FACE_MODELS[job["faces"]]), prov)
-    fstr = float(job.get("face_strength", 0.55))
+    fstr = float(job.get("face_strength", 0.4))
+    global BITRATE_M
+    BITRATE_M = max(4, int(round(10 * (TW * TH) / (1440 * 1080))))
     enc_name, enc = pick_encoder(ff)
     log("  encodeur vidéo : %s" % enc_name)
     work = job["work"]; os.makedirs(work, exist_ok=True)
@@ -173,7 +178,9 @@ def run(job):
             nseg = k; break              # durée surestimée : la vidéo est finie
         os.replace(part, seg); done_frames += got; stats["frames"] += got
         el = time.time() - t_start
-        log("  tronçon %d/%d terminé (%.1f images/s)" % (k + 1, nseg, stats["frames"] / max(1e-6, el)))
+        try: mbps = os.path.getsize(seg) * 8 / (got * fps_d / fps_n) / 1e6
+        except OSError: mbps = 0
+        log("  tronçon %d/%d terminé (%.1f images/s, %.1f Mb/s)" % (k + 1, nseg, stats["frames"] / max(1e-6, el), mbps))
         emit(t="prog", done=done_frames, total=total)
         k += 1
     nfaces = stats["faces"]

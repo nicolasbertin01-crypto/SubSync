@@ -1,3 +1,8 @@
+SubSync 1.7
+- Amélioration vidéo : les visages de profil ou trop tournés ne sont plus retouchés (c'était la cause des visages déformés). Retouche dégressive pour les trois-quarts.
+- Nouveaux réglages conseillés : rendu « Naturel » (plus fidèle à l'original), visages « Naturels (GFPGAN) » à 40 %.
+- Qualité d'encodage : débit plus élevé imposé (~10 Mb/s en 1080p) pour supprimer les blocs et aplats dus à une compression trop forte ; le débit obtenu est affiché après chaque tronçon.
+
 SubSync 1.6.1
 - Amélioration vidéo : si la lecture de la vidéo ou l'écriture du résultat échoue (disque momentanément indisponible…), le tronçon est automatiquement recommencé jusqu'à 3 fois au lieu d'arrêter tout le traitement. Contrôle que chaque tronçon contient bien toutes ses images.
 

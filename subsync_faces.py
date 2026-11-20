@@ -20,13 +20,13 @@ def _nms(boxes, scores, thr=0.4):
 
 
 class FaceRestorer:
-    def __init__(self, det_path, rest_path, providers, min_size=48, score=0.55):
+    def __init__(self, det_path, rest_path, providers, min_size=48, score=0.55, yaw_full=0.15, yaw_max=0.35):
         import onnxruntime as ort
         so = ort.SessionOptions(); so.log_severity_level = 3
         self.det = ort.InferenceSession(det_path, so, providers=providers)
         self.rest = ort.InferenceSession(rest_path, so, providers=providers)
         self.rin = self.rest.get_inputs()[0].name
-        self.min_size = min_size; self.score = score
+        self.min_size = min_size; self.score = score; self.yaw_full = yaw_full; self.yaw_max = yaw_max
         m = np.zeros((512, 512), np.float32); b = 512 // 10          # masque à bords adoucis
         m[b:-b, b:-b] = 1; self.mask = cv2.GaussianBlur(m, (0, 0), b * 0.6)
 
@@ -58,8 +58,19 @@ class FaceRestorer:
         """Restaure les visages assez grands ; strength = part du visage restauré (0-1). Renvoie (image, nb)."""
         faces = self.detect(rgb)
         if not faces: return rgb, 0
-        out = rgb.astype(np.float32)
+        out = None; n = 0
         for box, kps, sc in faces:
+            # visage tourné (profil, trois-quarts marqué) : les modèles ne savent restaurer que des visages
+            # presque de face -> on diminue puis on supprime la retouche, sinon le visage est déformé.
+            le, re_, no = kps[0], kps[1], kps[2]
+            ed = float(np.linalg.norm(re_ - le))
+            if ed < 1: continue
+            yaw = abs(float(no[0] - (le[0] + re_[0]) / 2)) / ed
+            tilt = abs(float(re_[1] - le[1])) / ed
+            if yaw >= self.yaw_max or tilt > 0.6 or re_[0] <= le[0]: continue
+            k = strength * (1.0 if yaw <= self.yaw_full else (self.yaw_max - yaw) / (self.yaw_max - self.yaw_full))
+            if k <= 0.02: continue
+            if out is None: out = rgb.astype(np.float32)
             M, _ = cv2.estimateAffinePartial2D(kps.astype(np.float32), FFHQ_512, method=cv2.LMEDS)
             if M is None: continue
             crop = cv2.warpAffine(rgb, M, (512, 512), borderMode=cv2.BORDER_REPLICATE)
@@ -69,6 +80,7 @@ class FaceRestorer:
             IM = cv2.invertAffineTransform(M)
             h, w = rgb.shape[:2]
             back = cv2.warpAffine(y, IM, (w, h), borderMode=cv2.BORDER_REPLICATE)
-            m = cv2.warpAffine(self.mask, IM, (w, h))[..., None] * strength
-            out = out * (1 - m) + back * m
-        return np.clip(out + 0.5, 0, 255).astype(np.uint8), len(faces)
+            m = cv2.warpAffine(self.mask, IM, (w, h))[..., None] * k
+            out = out * (1 - m) + back * m; n += 1
+        if out is None: return rgb, 0
+        return np.clip(out + 0.5, 0, 255).astype(np.uint8), n

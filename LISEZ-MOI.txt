@@ -1,4 +1,4 @@
-﻿SubSync 1.6 - synchronisation automatique de sous-titres
+﻿SubSync 1.7 - synchronisation automatique de sous-titres
 ==========================================================
 
 INSTALLATION (une seule fois)
@@ -92,11 +92,12 @@ AMÉLIORATION VIDÉO (mode Améliorer)
   d'origine pour un rendu naturel, léger renforcement des détails, puis
   restauration des visages (détection SCRFD + GPEN ou GFPGAN).
   Réglages :
-    Rendu       Naturel / Équilibré (conseillé) / Lissé (sources bruitées)
+    Rendu       Naturel (conseillé) / Équilibré / Lissé (sources bruitées)
     Résolution  1080p ou 720p (les proportions d'origine sont gardées)
-    Visages     Détaillés (GPEN, plus net) / Naturels (GFPGAN, plus doux) /
-                pas de retouche ; « Force » = part du visage retouché
-                (trop fort = effet « masque » ; 50-60 % conseillé)
+    Visages     Naturels (GFPGAN, conseillé) / Détaillés (GPEN, plus net mais
+                peut changer les traits) / pas de retouche ; « Force » = part
+                du visage retouché (30-45 % conseillé). Seuls les visages
+                presque de face sont retouchés, les profils restent intacts.
   Sons, sous-titres, chapitres : copiés tels quels. Résultat « nom - HD.mkv ».
   Durée : environ 30 min à 1 h 30 par épisode sur une bonne carte graphique.
   « Arrêter » puis relancer : le travail reprend au dernier tronçon terminé
