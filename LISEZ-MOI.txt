@@ -1,4 +1,4 @@
-﻿SubSync 1.15 - synchronisation automatique de sous-titres
+﻿SubSync 1.16 - synchronisation automatique de sous-titres
 ==========================================================
 
 INSTALLATION (une seule fois)
@@ -81,6 +81,16 @@ TOUT-EN-UN
   VF) : enchaîne automatiquement l'amélioration de l'image (réglages du mode
   Améliorer) et intègre les sous-titres synchronisés/créés dans la vidéo.
   Les vidéos déjà en 1080p ne sont pas réaméliorées.
+
+SON, RENOMMAGE, SOUS-TITRES IMAGE
+  « Améliorer le son » (mode Améliorer) : dialogues plus clairs, souffle et
+  bourdonnement atténués, volume homogène d'une scène à l'autre.
+  « Nommer les fichiers « Série - S01E01 - Titre » » : renomme les fichiers
+  produits au format reconnu par Plex, Jellyfin et Kodi.
+  « Convertir les sous-titres image (DVD, Blu-ray) en texte .srt » : lit le
+  texte des sous-titres en image (VobSub, PGS) avec une IA locale et crée un
+  .srt à côté de la vidéo ; dans les vidéos produites par SubSync, la piste
+  texte est aussi ajoutée. Le modèle (≈ 8 Mo) est téléchargé la 1re fois.
 
 PROFILS, FILE D'ATTENTE, FIN DE TRAITEMENT
   Profil (en haut à droite) : « Enregistrer » mémorise tous les réglages sous

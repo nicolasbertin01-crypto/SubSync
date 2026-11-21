@@ -1,3 +1,9 @@
+SubSync 1.16
+- Amélioration vidéo plus rapide : lecture, calcul sur la carte graphique et finition des images se font maintenant en parallèle (≈ 25 à 30 % plus rapide selon la machine).
+- Nouvelle case « Améliorer le son » (mode Améliorer) : dialogues plus clairs, moins de souffle et de bourdonnement, volume homogène (fini les explosions trop fortes et les dialogues trop bas).
+- Nouvelle case « Nommer les fichiers « Série - S01E01 - Titre » » : fichiers produits renommés pour Plex, Jellyfin et Kodi.
+- Nouvelle case « Convertir les sous-titres image (DVD, Blu-ray) en texte .srt » : les sous-titres en image sont lus par une IA locale (accents et ponctuation française gérés) ; un .srt est créé à côté de la vidéo et ajouté dans les vidéos produites par SubSync.
+
 SubSync 1.15
 - Amélioration vidéo, corrections automatiques (analyse de la source au démarrage) :
   · Désentrelacer si nécessaire : détecte les sources entrelacées (désentrelacement de qualité) et les sources télécinéma 3:2 (reconstitution des 24 images/s d'origine). Activé par défaut ; sans effet sur les sources déjà progressives.

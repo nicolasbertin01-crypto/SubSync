@@ -602,6 +602,46 @@ def episode_keys(name):
     return None
 
 
+_TAGS = re.compile(r"\b(\d{3,4}p|x26[45]|h\.?26[45]|hevc|avc|aac|ac3|e-?ac-?3|dts|web[- .]?dl|web[- .]?rip|bluray|blu-ray|bdrip|brrip|"
+                   r"dvdrip|hdtv|remux|10 ?bit|8 ?bit|multi|vff|vfq|vf|vo|vostfr|truefrench|french|english|subs?|hdr|sdr|proper|repack|"
+                   r"ita|eng|fre|fra|pl|lektor|hq|hd)\b", re.I)
+
+
+def _clean_part(t):
+    t = re.sub(r"[\[(][^\])]*[\])]", " ", t)                 # [10Bit HQ] (1998)...
+    t = t.replace("_", " ")
+    if t.count(".") >= 2 and " " not in t.strip(): t = t.replace(".", " ")
+    t = _TAGS.split(t)[0] if _TAGS.search(t) else t
+    t = re.sub(r"\s+", " ", t).strip(" -._–")
+    return t
+
+
+def plex_name(paths, prefer_title_from=None):
+    """« Série - S04E01 - Titre » d'après les noms de fichiers (titre pris de préférence dans `prefer_title_from`,
+    ex. la version française). None si le numéro d'épisode est introuvable."""
+    best = None
+    for p in ([prefer_title_from] if prefer_title_from else []) + list(paths):
+        if not p: continue
+        base = os.path.splitext(os.path.basename(p))[0]
+        for pat in _EP_PATTERNS:
+            m = pat.search(base)
+            if not m: continue
+            se, e1 = int(m.group(1)), int(m.group(2)); e2 = int(m.group(3)) if m.group(3) else e1
+            series = _clean_part(base[:m.start()]); title = _clean_part(base[m.end():])
+            series = re.sub(r"\s*[`´'’]\s*", "'", series)
+            cand = dict(series=series, se=se, e1=e1, e2=e2 if e2 >= e1 and e2 - e1 <= 4 else e1, title=title)
+            if best is None: best = cand
+            else:
+                if not best["title"] and title: best["title"] = title
+                if not best["series"] and series: best["series"] = series
+            break
+    if not best or not best["series"]: return None
+    if best["series"].islower(): best["series"] = best["series"].title()
+    ep = "S%02dE%02d" % (best["se"], best["e1"]) + ("-E%02d" % best["e2"] if best["e2"] != best["e1"] else "")
+    name = "%s - %s" % (best["series"], ep) + (" - %s" % best["title"] if best["title"] else "")
+    return re.sub(r'[<>:"/\\|?*]', "", name).strip()
+
+
 def _similar(a, b):
     import difflib
     na = re.sub(r"[^a-z0-9]+", " ", os.path.splitext(os.path.basename(a))[0].lower())

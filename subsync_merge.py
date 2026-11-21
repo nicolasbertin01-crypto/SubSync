@@ -65,9 +65,10 @@ def video_info(path):
     dar = W / H * (float(sar) if sar and float(sar) > 0 else 1.0)
     st = float(v.start_time * v.time_base) if v.start_time is not None else 0.0
     subs = [s.codec_context.name if s.codec_context else "" for s in c.streams.subtitles]
+    auds = [int(getattr(s.codec_context, "channels", 2) or 2) for s in c.streams.audio]
     c.close()
     return dict(width=W, height=H, fps_num=rate.numerator, fps_den=rate.denominator, frames=frames, dar=dar,
-                vstart=max(0.0, st), sub_codecs=subs, duration=dur)
+                vstart=max(0.0, st), sub_codecs=subs, audio_ch=auds, duration=dur)
 
 
 def is_fr(a):

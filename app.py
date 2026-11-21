@@ -453,7 +453,9 @@ class App(BaseTk):
         self.enh_deint = ctk.CTkCheckBox(cf, text="Désentrelacer si nécessaire", command=self._save_enh)
         self.enh_crop = ctk.CTkCheckBox(cf, text="Rogner les bandes noires", command=self._save_enh)
         self.enh_color = ctk.CTkCheckBox(cf, text="Raviver couleurs et contraste (doux)", command=self._save_enh)
-        for i_, (wdg, key, dflt) in enumerate(((self.enh_deint, "deint", True), (self.enh_crop, "crop", True), (self.enh_color, "color", False))):
+        self.enh_audio = ctk.CTkCheckBox(cf, text="Améliorer le son (dialogues plus clairs,\nmoins de souffle, volume homogène)", command=self._save_enh)
+        for i_, (wdg, key, dflt) in enumerate(((self.enh_deint, "deint", True), (self.enh_crop, "crop", True), (self.enh_color, "color", False),
+                                               (self.enh_audio, "audio", False))):
             wdg.grid(row=i_, column=0, sticky="w", pady=1)
             if es.get(key, dflt): wdg.select()
         self.enh_row.grid_remove()
@@ -461,6 +463,14 @@ class App(BaseTk):
         self.chain.grid(row=r, column=0, sticky="w", padx=14, pady=(10, 0)); r += 1
         if upd.settings().get("chain"): self.chain.select()
         self.chain.configure(command=lambda: upd.save_settings(chain=bool(self.chain.get())))
+        self.rename = ctk.CTkCheckBox(side, text="Nommer les fichiers « Série - S01E01 - Titre »\n(Plex, Jellyfin, Kodi)")
+        self.rename.grid(row=r, column=0, sticky="w", padx=14, pady=(10, 0)); r += 1
+        if upd.settings().get("rename"): self.rename.select()
+        self.rename.configure(command=lambda: upd.save_settings(rename=bool(self.rename.get())))
+        self.ocr = ctk.CTkCheckBox(side, text="Convertir les sous-titres image (DVD, Blu-ray)\nen texte .srt")
+        self.ocr.grid(row=r, column=0, sticky="w", padx=14, pady=(10, 0)); r += 1
+        if upd.settings().get("ocr"): self.ocr.select()
+        self.ocr.configure(command=lambda: upd.save_settings(ocr=bool(self.ocr.get())))
         self.only_sel = ctk.CTkCheckBox(side, text="Seulement les lignes sélectionnées")
         self.only_sel.grid(row=r, column=0, sticky="w", padx=14, pady=(10, 0)); r += 1
         self.out_title = ctk.CTkLabel(side, text="Enregistrer les sous-titres")
@@ -557,7 +567,8 @@ class App(BaseTk):
             self.enh_fstr_lbl.configure(text="%d %%" % round(float(self.enh_fstr.get()) * 100))
             d["enhance3"] = dict(preset=self.enh_preset.get(), res=self.enh_res.get(), faces=self.enh_faces.get(), fstr=round(float(self.enh_fstr.get()), 2), pre=self.enh_pre.get(),
                                   grain=self.enh_grain.get(), size=self.enh_size.get(), pdur=self.enh_pdur.get(),
-                                  deint=bool(self.enh_deint.get()), crop=bool(self.enh_crop.get()), color=bool(self.enh_color.get()))
+                                  deint=bool(self.enh_deint.get()), crop=bool(self.enh_crop.get()), color=bool(self.enh_color.get()),
+                                  audio=bool(self.enh_audio.get()))
             with open(self.SETTINGS, "w", encoding="utf-8") as f: json.dump(d, f)
         except Exception:
             pass
@@ -887,7 +898,8 @@ class App(BaseTk):
                              faces=ENH_FACES.get(self.enh_faces.get(), "gfpgan"), face_strength=round(float(self.enh_fstr.get()), 2),
                              preclean=ENH_PRECLEAN.get(self.enh_pre.get(), ""), degrain=ENH_GRAIN.get(self.enh_grain.get(), "reduire"),
                              size=ENH_SIZE.get(self.enh_size.get(), "compact"), auto_deint=bool(self.enh_deint.get()),
-                             auto_crop=bool(self.enh_crop.get()), color="doux" if self.enh_color.get() else ""), chain=bool(self.chain.get()))
+                             auto_crop=bool(self.enh_crop.get()), color="doux" if self.enh_color.get() else "",
+                             audio_fix=bool(self.enh_audio.get())), chain=bool(self.chain.get()), rename=bool(self.rename.get()), ocr=bool(self.ocr.get()))
         if opts["chain"] and mode != "enhance" and not video_ready():
             messagebox.showinfo("SubSync", "« Tout-en-un » demande l'amélioration vidéo : lancez une fois « Installer l'amélioration vidéo.bat »."); return
         self._queue_save(todo, opts)
@@ -1037,7 +1049,7 @@ class App(BaseTk):
                     enh_fstr=float(self.enh_fstr.get()), enh_pre=self.enh_pre.get(), enh_grain=self.enh_grain.get(),
                     enh_size=self.enh_size.get(), enh_pdur=self.enh_pdur.get(), out_dir=self.out_dir,
                     enh_deint=bool(self.enh_deint.get()), enh_crop=bool(self.enh_crop.get()), enh_color=bool(self.enh_color.get()),
-                    chain=bool(self.chain.get()))
+                    enh_audio=bool(self.enh_audio.get()), chain=bool(self.chain.get()), rename=bool(self.rename.get()), ocr=bool(self.ocr.get()))
 
     def _apply(self, d):
         if d.get("mode") in MODES: self.mode.set(d["mode"])
@@ -1046,7 +1058,8 @@ class App(BaseTk):
                        ("enh_grain", self.enh_grain), ("enh_size", self.enh_size), ("enh_pdur", self.enh_pdur)):
             if d.get(k): wdg.set(d[k])
         if "enh_fstr" in d: self.enh_fstr.set(d["enh_fstr"])
-        for k, wdg in (("enh_deint", self.enh_deint), ("enh_crop", self.enh_crop), ("enh_color", self.enh_color), ("chain", self.chain)):
+        for k, wdg in (("enh_deint", self.enh_deint), ("enh_crop", self.enh_crop), ("enh_color", self.enh_color), ("enh_audio", self.enh_audio),
+                       ("chain", self.chain), ("rename", self.rename), ("ocr", self.ocr)):
             if k in d: (wdg.select() if d[k] else wdg.deselect())
         if "keep_langs" in d:
             for c, cb in self.keep_langs.items(): (cb.select() if c in d["keep_langs"] else cb.deselect())
@@ -1126,10 +1139,14 @@ class App(BaseTk):
                                                log=lg, progress=lambda f, j=j: prog((j + f) / len(r.videos)), cancel=cc,
                                                translator=opts["translator"])
                 else:
-                    o = {k_: v_ for k_, v_ in opts.items() if k_ not in ("quality", "translator", "keep_langs", "enh", "chain")}
+                    o = {k_: v_ for k_, v_ in opts.items() if k_ not in ("quality", "translator", "keep_langs", "enh", "chain", "rename", "ocr")}
                     res = eng.run_job(r.srt, r.videos, log=lg, progress=prog, cancel=cc, **o)
                 if opts.get("chain") and opts["mode"] != "enhance" and not self.stop_flag:
                     res = self._chain_enhance(opts, res, lg, cc)
+                if opts.get("ocr") and not self.stop_flag:
+                    self._ocr_outputs(r, res, opts, lg, cc)
+                if opts.get("rename"):
+                    res = self._rename_outputs(r, res, opts, lg)
                 lvl = "created" if opts["mode"] == "create" else "ok"
                 for x in ([] if opts["mode"] == "create" else res):
                     if x.level == "bad": lvl = "bad"
@@ -1200,6 +1217,72 @@ class App(BaseTk):
                                                (", %d visages restaurés" % result.get("faces", 0)) if e["faces"] else "", fps)
         return eng.Result(video, out, "amélioration", 100.0, "ok", summ, {}, [])
 
+    def _ocr_outputs(self, row, res, opts, log, cancel):
+        """Convertit les sous-titres image (DVD / Blu-ray) en texte : .srt à côté de la vidéo et, pour les vidéos
+        produites par SubSync, piste texte ajoutée dans le fichier."""
+        import av, subsync_ocr as ocr
+        targets = [x.out_path for x in res if getattr(x, "out_path", None) and x.out_path.lower().endswith((".mkv", ".mp4"))
+                   and os.path.exists(x.out_path)]
+        own = set(targets)
+        if not targets: targets = [v for v in row.videos if os.path.exists(v)]
+        for v in targets:
+            try:
+                c = av.open(v); img = [(s_.index, (s_.metadata.get("language") or "und"), s_.metadata.get("title") or "")
+                                      for s_ in c.streams.subtitles if (s_.codec_context.name or "") in ocr.IMAGE_SUBS]; c.close()
+            except Exception as e:
+                log("  sous-titres image : lecture impossible (%s)" % e); continue
+            if not img: continue
+            made = []
+            for k, (si, lang, title) in enumerate(img):
+                if cancel(): raise eng.Cancelled()
+                out = os.path.splitext(v)[0] + (".%s%s.srt" % (lang[:3], "" if k == 0 else ".%d" % (k + 1)))
+                log("  sous-titres image → texte (%s%s)…" % (lang, (" « %s »" % title) if title else ""))
+                try:
+                    n = ocr.convert(v, si, out, log=log, cancel=cancel)
+                    log("    %d répliques lues → %s" % (n, os.path.basename(out))); made.append((out, lang, title))
+                except Exception as e:
+                    log("    échec de la lecture du texte : %s" % e)
+            if made and v in own and v.lower().endswith(".mkv"):
+                tmp = v[:-4] + ".ocr.part.mkv"
+                a = [eng.ffmpeg_exe(), "-v", "error", "-y", "-i", v]
+                for p_, _, _ in made: a += ["-i", p_]
+                a += ["-map", "0"] + sum([["-map", "%d:0" % (j + 1)] for j in range(len(made))], [])
+                a += ["-c", "copy", "-max_interleave_delta", "0"]
+                try:
+                    c = av.open(v); ns = len(c.streams.subtitles); c.close()
+                except Exception: ns = 0
+                for j, (_, lang, title) in enumerate(made):
+                    a += ["-c:s:%d" % (ns + j), "srt", "-metadata:s:s:%d" % (ns + j), "language=" + lang,
+                          "-metadata:s:s:%d" % (ns + j), "title=" + ((title + " ") if title else "") + "(texte)",
+                          "-disposition:s:%d" % (ns + j), "0"]
+                r_ = subprocess.run(a + [tmp], capture_output=True, creationflags=0x08000000 if os.name == "nt" else 0)
+                if r_.returncode == 0: os.replace(tmp, v); log("    piste(s) texte ajoutée(s) dans %s" % os.path.basename(v))
+                else:
+                    try: os.remove(tmp)
+                    except OSError: pass
+
+    def _rename_outputs(self, row, res, opts, log):
+        """Renomme les fichiers produits au format « Série - S01E01 - Titre » (Plex, Jellyfin, Kodi)."""
+        vf = row.videos[1] if (row.kind == "fus" and len(row.videos) > 1) else None
+        for x in res:
+            p_ = getattr(x, "out_path", None)
+            if not p_ or not os.path.exists(p_): continue
+            name = eng.plex_name([x.video] + list(row.videos) + ([row.srt] if row.srt else []), prefer_title_from=vf)
+            if not name: continue
+            if p_.lower().endswith(".srt"): ext = ".%s.srt" % (opts.get("sub_lang") or "fr")
+            else: ext = os.path.splitext(p_)[1]
+            dst = os.path.join(os.path.dirname(p_), name + ext); k = 2
+            if os.path.abspath(dst) == os.path.abspath(p_): continue
+            while os.path.exists(dst):
+                dst = os.path.join(os.path.dirname(p_), "%s (%d)%s" % (name, k, ext)); k += 1
+            try:
+                os.replace(p_, dst); x.out_path = dst
+                x.summary = x.summary.replace(os.path.basename(p_), os.path.basename(dst))
+                log("  renommé : %s" % os.path.basename(dst))
+            except OSError as e:
+                log("  renommage impossible (%s)" % e)
+        return res
+
     LANG3 = {"fr": "fre", "en": "eng", "de": "ger", "es": "spa", "it": "ita", "pt": "por", "nl": "dut", "ja": "jpn", "pl": "pol", "ru": "rus"}
 
     def _chain_enhance(self, opts, res, log, cancel):
@@ -1242,7 +1325,7 @@ class App(BaseTk):
                     faces=ENH_FACES.get(self.enh_faces.get(), "gfpgan"), face_strength=round(float(self.enh_fstr.get()), 2),
                     preclean=ENH_PRECLEAN.get(self.enh_pre.get(), ""), degrain=ENH_GRAIN.get(self.enh_grain.get(), "reduire"),
                     size=ENH_SIZE.get(self.enh_size.get(), "compact"), auto_deint=bool(self.enh_deint.get()),
-                    auto_crop=bool(self.enh_crop.get()), color="doux" if self.enh_color.get() else "")
+                    auto_crop=bool(self.enh_crop.get()), color="doux" if self.enh_color.get() else "", audio_fix=bool(self.enh_audio.get()))
 
     def _enh_label(self):
         g = self.enh_grain.get().split(" (")[0]; pre = self.enh_pre.get().split(" (")[0]

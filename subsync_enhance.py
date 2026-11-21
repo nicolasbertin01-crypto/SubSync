@@ -252,33 +252,63 @@ def run(job):
                 if werr: continue                      # on vide la file sans écrire
                 try: encp.stdin.write(b)
                 except Exception as e: werr.append(e)
-        tr = threading.Thread(target=reader, daemon=True); tw = threading.Thread(target=writer, daemon=True)
-        tr.start(); tw.start(); got = 0; nf_seg = 0
+        # chaîne en 3 étages parallèles : lecture+préparation (fil 1) -> calcul IA (fil principal, carte graphique)
+        # -> finition + visages (fil 2) -> encodage (fil 3). La carte graphique n'attend plus le processeur.
+        q_post = queue.Queue(6); cnt = {"got": 0, "nf": 0}
+        def reader2():
+            try:
+                while True:
+                    b = dec.stdout.read(fsz)
+                    if len(b) < fsz: break
+                    src8 = np.frombuffer(b, np.uint8).reshape(H, W, 3)
+                    x = (src8.astype(np.float32) * (1.0 / 255.0)).transpose(2, 0, 1)[None]
+                    if spec["kind"] != "graph" and up_f16: x = x.astype(np.float16)
+                    q_in.put((src8, np.ascontiguousarray(x)))
+            except Exception as e:
+                werr.append(e)
+            q_in.put(None)
+        def post():
+            try:
+                while True:
+                    it = q_post.get()
+                    if it is None: break
+                    src8, y = it
+                    if werr: continue
+                    if spec["kind"] == "graph":
+                        img = (y.transpose(1, 2, 0) * 255.0 + 0.5).astype(np.uint8)
+                    else:
+                        img = (np.clip(y.astype(np.float32).transpose(1, 2, 0), 0, 1) * 255.0 + 0.5).astype(np.uint8)
+                        if img.shape[1] != TW or img.shape[0] != TH:
+                            img = cv2.resize(img, (TW, TH), interpolation=cv2.INTER_AREA if img.shape[1] > TW else cv2.INTER_CUBIC)
+                        if mix < 0.999:
+                            base = cv2.resize(src8, (TW, TH), interpolation=cv2.INTER_CUBIC)
+                            img = cv2.addWeighted(img, mix, base, 1 - mix, 0)
+                    if fr is not None:
+                        img, nf = fr.restore(img, fstr); cnt["nf"] += nf
+                    q_out.put(np.ascontiguousarray(img).tobytes()); cnt["got"] += 1
+                    g_ = cnt["got"]
+                    if g_ % 24 == 0:
+                        if prog_base is None: emit(t="prog", done=done_frames + g_, total=total)
+                        else: emit(t="prog", done=prog_base[0] + g_, total=prog_base[1])
+            except Exception as e:
+                werr.append(e)
+            q_out.put(None)
+        tr = threading.Thread(target=reader2, daemon=True); tw = threading.Thread(target=writer, daemon=True)
+        tp = threading.Thread(target=post, daemon=True)
+        tr.start(); tw.start(); tp.start()
         try:
             while True:
-                b = q_in.get()
-                if b is None or werr: break
-                src8 = np.frombuffer(b, np.uint8).reshape(H, W, 3)
-                x = (src8.astype(np.float32) / 255.0).transpose(2, 0, 1)[None]
+                it = q_in.get()
+                if it is None or werr: break
+                src8, x = it
                 if spec["kind"] == "graph":
                     y = up.run(None, {"input": x, "mix": mixa, "sizes": sizes})[0][0]
-                    img = (y.transpose(1, 2, 0) * 255.0 + 0.5).astype(np.uint8)
                 else:
-                    y = up.run(None, {up_in: x.astype(np.float16) if up_f16 else x})[0][0].astype(np.float32)
-                    img = (np.clip(y.transpose(1, 2, 0), 0, 1) * 255.0 + 0.5).astype(np.uint8)
-                    if img.shape[1] != TW or img.shape[0] != TH:
-                        img = cv2.resize(img, (TW, TH), interpolation=cv2.INTER_AREA if img.shape[1] > TW else cv2.INTER_CUBIC)
-                    if mix < 0.999:
-                        base = cv2.resize(src8, (TW, TH), interpolation=cv2.INTER_CUBIC)
-                        img = cv2.addWeighted(img, mix, base, 1 - mix, 0)
-                if fr is not None:
-                    img, nf = fr.restore(img, fstr); nf_seg += nf
-                q_out.put(np.ascontiguousarray(img).tobytes()); got += 1
-                if got % 24 == 0:
-                    if prog_base is None: emit(t="prog", done=done_frames + got, total=total)
-                    else: emit(t="prog", done=prog_base[0] + got, total=prog_base[1])
+                    y = up.run(None, {up_in: x})[0][0]
+                q_post.put((src8, y))
         finally:
-            q_out.put(None); tw.join()
+            q_post.put(None); tp.join(); tw.join()
+            got = cnt["got"]; nf_seg = cnt["nf"]
             try: encp.stdin.close()
             except Exception: pass
             if werr:
@@ -328,7 +358,7 @@ def run(job):
         k += 1
     nfaces = stats["faces"]
     # assemblage : vidéo améliorée + audio, sous-titres, chapitres et pièces jointes d'origine
-    log("  assemblage du fichier final (sons et sous-titres d'origine)…")
+    log("  assemblage du fichier final (sons%s et sous-titres d'origine)…" % (" améliorés" if job.get("audio_fix") else ""))
     lst = os.path.join(work, "liste.txt")
     with open(lst, "w", encoding="utf-8") as f:
         for k in range(nseg): f.write("file '%s'\n" % os.path.join(work, "seg_%05d.mkv" % k).replace("\\", "/").replace("'", "'\\''"))
@@ -345,6 +375,12 @@ def run(job):
         # max_interleave_delta 0 : son et image strictement entrelacés dans le fichier (sinon tout le son peut
         # se retrouver regroupé au début du fichier et les lecteurs n'en jouent rien)
         a += ["-map", "1:t?", "-c", "copy", "-map_metadata", "1", "-map_chapters", "1", "-max_interleave_delta", "0"]
+        if job.get("audio_fix"):
+            # dialogues plus clairs, souffle atténué, volume homogène entre les pistes (VF / VO)
+            af = ("highpass=f=60,afftdn=nf=-30:nt=w,equalizer=f=2800:t=q:w=1.2:g=2,"
+                  "loudnorm=I=-18:TP=-1.5:LRA=14,aresample=48000")
+            for i, ch in enumerate(job.get("audio_ch", [])):
+                a += ["-filter:a:%d" % i, af, "-c:a:%d" % i, "eac3", "-b:a:%d" % i, "224k" if ch <= 2 else "448k"]
         if with_subs:
             for i, c in enumerate(job.get("sub_codecs", [])):
                 if c == "mov_text": a += ["-c:s:%d" % i, "srt"]
