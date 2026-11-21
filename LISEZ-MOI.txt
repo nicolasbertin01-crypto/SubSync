@@ -1,4 +1,4 @@
-﻿SubSync 1.14 - synchronisation automatique de sous-titres
+﻿SubSync 1.15 - synchronisation automatique de sous-titres
 ==========================================================
 
 INSTALLATION (une seule fois)
@@ -122,6 +122,9 @@ AMÉLIORATION VIDÉO (mode Améliorer)
                 visibles en mouvement) ; l'image devient un peu plus douce.
     Grain       Garder / Réduire (conseillé) / Fortement réduire : atténue le
                 fourmillement accentué par l'IA (scènes sombres).
+    Corrections automatiques : désentrelacer si nécessaire (entrelacé ou
+                télécinéma détectés tout seuls), rogner les bandes noires,
+                raviver couleurs et contraste (doux, à tester avec l'Aperçu).
     Fichier     Compact ≈ 1 Go (conseillé, encodage x265 sur le processeur)
                 / Qualité maximale ≈ 3 Go (encodeur de la carte graphique).
   APERÇU : sélectionnez une vidéo, réglez, cliquez « Aperçu » (moment

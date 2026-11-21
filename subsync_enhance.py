@@ -104,12 +104,94 @@ def pick_encoder(ff, size="compact"):
 DEGRAIN = {"reduire": "hqdn3d=2:1.5:4:3", "fort": "hqdn3d=3.5:2.5:7:5"}
 
 
+def analyse(ff, src, W, H, fps, dur, work, log):
+    """Analyse rapide de la source (3 passages de 8 s) : entrelacement / télécinéma, bandes noires, niveaux et couleurs."""
+    import re, statistics
+    cache = os.path.join(work, "analyse.json")
+    if os.path.exists(cache):
+        try:
+            with open(cache, encoding="utf-8") as f: return json.load(f)
+        except Exception: pass
+    tff = bff = prog = rep = tot_rep = 0; crops = []; ymin = []; ymax = []; sat = []
+    for frac in (0.25, 0.5, 0.75):
+        t = max(0.0, dur * frac - 4)
+        r = subprocess.run([ff, "-hide_banner", "-v", "info", "-ss", "%.2f" % t, "-i", src, "-map", "0:v:0", "-frames:v", str(int(fps * 8)),
+                            "-vf", "idet,cropdetect=limit=24:round=2:reset=0,signalstats,metadata=mode=print", "-f", "null", "-"],
+                           capture_output=True, creationflags=NOWIN)
+        e = r.stderr.decode("utf-8", errors="replace")
+        m = re.findall(r"Multi frame detection: TFF:\s*(\d+) BFF:\s*(\d+) Progressive:\s*(\d+)", e)
+        if m: a, b, c = map(int, m[-1]); tff += a; bff += b; prog += c
+        m = re.findall(r"Repeated Fields: Neither:\s*(\d+) Top:\s*(\d+) Bottom:\s*(\d+)", e)
+        if m: n0, tp, bt = map(int, m[-1]); rep += tp + bt; tot_rep += n0 + tp + bt
+        c = re.findall(r"crop=(\d+):(\d+):(\d+):(\d+)", e)
+        if c: crops.append(tuple(map(int, c[-1])))
+        ymin += [float(x) for x in re.findall(r"lavfi\.signalstats\.YMIN=([\d.]+)", e)]
+        ymax += [float(x) for x in re.findall(r"lavfi\.signalstats\.YMAX=([\d.]+)", e)]
+        sat += [float(x) for x in re.findall(r"lavfi\.signalstats\.SATAVG=([\d.]+)", e)]
+    res = dict(interlace="", crop=None, ymin=None, ymax=None, sat=None)
+    if tff + bff + prog > 0 and (tff + bff) / (tff + bff + prog) > 0.3:
+        res["interlace"] = "telecine" if tot_rep and rep / tot_rep > 0.15 else ("tff" if tff >= bff else "bff")
+    if crops:
+        # rectangle utile commun aux 3 passages (le plus grand), seulement si les bandes sont nettes (>= 8 px)
+        x0 = min(c[2] for c in crops); y0 = min(c[3] for c in crops)
+        x1 = max(c[2] + c[0] for c in crops); y1 = max(c[3] + c[1] for c in crops)
+        cw, ch = (x1 - x0) // 2 * 2, (y1 - y0) // 2 * 2
+        if (W - cw >= 8 or H - ch >= 8) and cw >= W * 0.6 and ch >= H * 0.6: res["crop"] = [cw, ch, x0, y0]
+    if ymin and ymax:
+        res["ymin"] = sorted(ymin)[len(ymin) // 10]; res["ymax"] = sorted(ymax)[len(ymax) * 9 // 10]
+    if sat: res["sat"] = statistics.median(sat)
+    try:
+        with open(cache, "w", encoding="utf-8") as f: json.dump(res, f)
+    except Exception: pass
+    return res
+
+
+def color_filter(a):
+    """Correction douce : noirs et blancs ramenés à la plage normale (si la source est délavée) et couleurs un peu ravivées."""
+    f = []
+    lo, hi = a.get("ymin"), a.get("ymax")
+    if lo is not None and hi is not None and hi - lo > 80:
+        lo2 = min(max(lo, 16.0), 40.0); hi2 = max(min(hi, 235.0), 200.0)
+        if lo2 > 18 or hi2 < 232:
+            f.append("lutyuv=y='clip((val-%.1f)*219/%.1f+16,16,235)'" % (lo2, hi2 - lo2))
+    s_ = a.get("sat")
+    if s_ is not None:
+        k = 1.18 if s_ < 6 else (1.12 if s_ < 12 else 1.06)
+        if k > 1: f.append("eq=saturation=%.2f" % k)
+    return ",".join(f)
+
+
 def run(job):
     ff = job["ffmpeg"]; src = job["src"]; out = job["out"]
     W, H = job["width"], job["height"]
     fps_n, fps_d = job["fps_num"], job["fps_den"]; fps = fps_n / fps_d
     total = int(job["frames"])
-    TH = int(job["target_h"]); TW = int(round(TH * job["dar"] / 2)) * 2
+    work = job["work"]; os.makedirs(work, exist_ok=True)
+    dar = job["dar"]; pre_parts = []; base_parts = []
+    if job.get("auto_deint", True) or job.get("auto_crop", True) or job.get("color"):
+        an = analyse(ff, src, W, H, fps, total / fps, work, log)
+        if job.get("auto_deint", True) and an["interlace"]:
+            if an["interlace"] == "telecine":
+                pre_parts.append("fieldmatch,yadif=deint=interlaced,decimate")
+                fps_n, fps_d = fps_n * 4, fps_d * 5; g = __import__("math").gcd(fps_n, fps_d); fps_n //= g; fps_d //= g
+                fps = fps_n / fps_d; total = int(total * 4 / 5)
+                log("  source en télécinéma (3:2) : reconstitution des images d'origine (%.3f i/s)" % fps)
+            else:
+                pre_parts.append("bwdif=mode=send_frame:parity=%s:deint=all" % an["interlace"])
+                log("  source entrelacée : désentrelacement")
+        if job.get("auto_crop", True) and an["crop"]:
+            cw, ch, cx, cy = an["crop"]
+            pre_parts.append("crop=%d:%d:%d:%d" % (cw, ch, cx, cy))
+            dar = dar * (cw / W) / (ch / H); W, H = cw, ch
+            log("  bandes noires rognées : image utile %d×%d" % (cw, ch))
+        base_parts = list(pre_parts)                      # l'« avant » de l'aperçu : rogné/désentrelacé, sans retouche
+        if job.get("color"):
+            cf = color_filter(an)
+            if cf: pre_parts.append(cf); log("  couleurs et contraste corrigés (%s)" % cf.replace("lutyuv=y=", "niveaux ").split("'")[0].strip())
+            else: log("  couleurs et contraste déjà corrects : rien à corriger")
+    job["_pre"] = ",".join(pre_parts); job["_base_pre"] = ",".join(base_parts)
+    job["_fps"] = (fps_n, fps_d); job["_total"] = total
+    TH = int(job["target_h"]); TW = int(round(TH * dar / 2)) * 2
     prov, where = providers()
     spec = PRESETS.get(job.get("preset", "fidele"), PRESETS["fidele"]); mix = spec["mix"]
     log("Amélioration : %s → %d×%d (%s, réglage « %s »%s), calcul sur %s" % (os.path.basename(src), TW, TH,
@@ -129,7 +211,6 @@ def run(job):
     BITRATE_M = max(4, int(round(10 * (TW * TH) / (1440 * 1080))))
     enc_name, enc = pick_encoder(ff, job.get("size", "compact"))
     log("  encodeur vidéo : %s" % enc_name)
-    work = job["work"]; os.makedirs(work, exist_ok=True)
     with open(os.path.join(work, "tache.json"), "w", encoding="utf-8") as f: json.dump(job, f)
     nseg = (total + SEG - 1) // SEG
     done_frames = sum(min(SEG, total - k * SEG) for k in range(nseg) if os.path.exists(os.path.join(work, "seg_%05d.mkv" % k)))
@@ -146,7 +227,7 @@ def run(job):
         if t0 is None: t0 = k * SEG * fps_d / fps_n
         if os.environ.get("SUBSYNC_FAIL_ONCE") == str(k) and not stats.get("failed"):   # test de la reprise automatique
             stats["failed"] = True; raise OSError("panne simulée")
-        pre = PRECLEAN.get(job.get("preclean") or "")
+        pre = ",".join(x for x in (job.get("_pre", ""), PRECLEAN.get(job.get("preclean") or "")) if x)
         dec = subprocess.Popen([ff, "-v", "error", "-ss", "%.6f" % t0, "-i", src, "-map", "0:v:0"] + (["-vf", pre] if pre else []) +
                                ([] if last else ["-frames:v", str(n)]) +
                                ["-f", "rawvideo", "-pix_fmt", "rgb24", "-"], stdout=subprocess.PIPE, creationflags=NOWIN)
@@ -296,7 +377,7 @@ def preview(job, do_segment, stats, fps_n, fps_d, TW, TH, work):
         log("  aperçu %d/%d : extrait à %d:%02d" % (i + 1, len(times), int(t) // 60, int(t) % 60))
         part = os.path.join(work, "apercu_%d.mkv" % i)
         t1 = time.time()
-        n_i = max(1, min(n, int(job["frames"]) - int(t * fps) - 1))
+        n_i = max(1, min(n, int(job.get("_total", job["frames"])) - int(t * fps) - 1))
         got = do_segment(i, n_i, False, part, t0=t, prog_base=(i * n, tot))
         if i > 0 or len(times) == 1: t_proc += (time.time() - t1) / max(1, got) * n
         enc_bytes += os.path.getsize(part)
@@ -304,14 +385,15 @@ def preview(job, do_segment, stats, fps_n, fps_d, TW, TH, work):
         o_png = os.path.join(work, "avant_%d.png" % i); e_png = os.path.join(work, "apres_%d.png" % i)
         sbs = os.path.join(work, "cote_a_cote_%d.mp4" % i)
         subprocess.run([ff, "-v", "error", "-y", "-ss", "%.3f" % mid, "-i", src, "-frames:v", "1",
-                        "-vf", "scale=%d:%d:flags=bicubic" % (TW, TH), o_png], creationflags=NOWIN)
+                        "-vf", ((job["_base_pre"] + ",") if job.get("_base_pre") else "") + "scale=%d:%d:flags=bicubic" % (TW, TH), o_png], creationflags=NOWIN)
         subprocess.run([ff, "-v", "error", "-y", "-ss", "%.3f" % (dur / 2), "-i", part, "-frames:v", "1", e_png], creationflags=NOWIN)
         subprocess.run([ff, "-v", "error", "-y", "-ss", "%.3f" % t, "-t", "%.3f" % dur, "-i", src, "-i", part, "-filter_complex",
-                        "[0:v]scale=%d:%d:flags=bicubic,setsar=1[a];[1:v]setsar=1[b];[a][b]hstack,format=yuv420p" % (TW, TH),
+                        "[0:v]%sscale=%d:%d:flags=bicubic,setsar=1[a];[1:v]setsar=1[b];[a][b]hstack,format=yuv420p" % (
+                            (job["_base_pre"] + ",") if job.get("_base_pre") else "", TW, TH),
                         "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-an", sbs], creationflags=NOWIN)
         items.append(dict(time=t, avant=o_png, apres=e_png, video=sbs if os.path.exists(sbs) else part))
     per_frame = t_proc / max(1, (len(times) - 1 if len(times) > 1 else 1) * n)
-    total = int(job["frames"]); dur_all = total * fps_d / fps_n
+    total = int(job.get("_total", job["frames"])); dur_all = total * fps_d / fps_n
     mbps = enc_bytes * 8 / (len(times) * n / fps) / 1e6
     emit(t="preview", items=items, fps=(1 / per_frame if per_frame else 0), est_seconds=per_frame * total,
          est_size_mb=(mbps * dur_all / 8) + job.get("audio_mb", 0), mbps=mbps)
