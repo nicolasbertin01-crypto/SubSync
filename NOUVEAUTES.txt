@@ -1,3 +1,9 @@
+SubSync 1.13
+- File d'attente qui survit aux redémarrages : si SubSync est fermé, le PC éteint ou en cas de plantage pendant un traitement, SubSync propose au démarrage suivant de reprendre les épisodes restants (les améliorations repartent du dernier tronçon terminé).
+- Action à la fin des traitements : rien / mettre en veille / éteindre le PC (avec 60 s pour annuler). Menu sous le bouton de lancement.
+- Notifications sur téléphone à la fin des traitements (application gratuite ntfy) : bouton « Notifications… » en haut.
+- Profils de réglages (ex. un profil par série) : en haut du panneau de droite, « Enregistrer » mémorise tous les réglages (méthode, langues, amélioration, dossier de sortie…), le menu les réapplique en un clic.
+
 SubSync 1.12
 - Aperçu : lecture de la vidéo directement dans la fenêtre de comparaison (« Lire la vidéo », « Image suivante »), avec la séparation avant/après.
 - Zoom à la molette (jusqu'à ×8), centré sur la souris et appliqué en même temps des deux côtés, en image fixe comme pendant la lecture. Clic droit glissé pour se déplacer dans l'image zoomée, double-clic ou « Vue entière » pour revenir.

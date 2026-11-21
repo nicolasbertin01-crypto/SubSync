@@ -27,6 +27,8 @@ import subsync_update as upd
 VERSION = upd.local_version() if upd.local_version() != "0" else "1.6"
 LANGS = ["fr", "en", "es", "de", "it", "pt", "nl"]
 ENH_PRESETS = {"Fidèle (conseillé)": "fidele", "Net": "net", "Lissé (sources très bruitées)": "lisse"}
+END_ACTIONS = {"À la fin : rien": "", "À la fin : mettre en veille": "sleep", "À la fin : éteindre le PC": "shutdown"}
+QUEUE_FILE = os.path.join(APP_DIR, "file_attente.json")
 ENH_PRECLEAN = {"Aucun": "", "Léger (vidéos compressées)": "leger", "Fort (blocs très visibles en mouvement)": "fort"}
 ENH_GRAIN = {"Garder": "", "Réduire (conseillé)": "reduire", "Fortement réduire": "fort"}
 ENH_SIZE = {"Compact ≈ 1 Go (conseillé)": "compact", "Qualité maximale ≈ 3 Go": "max"}
@@ -300,6 +302,7 @@ class App(BaseTk):
         self.after(100, self._poll)
         self._log("SubSync prêt. Ajoutez vos fichiers .srt et vos vidéos (ou glissez-les dans la fenêtre).")
         self.after(4000, self._auto_update_check)
+        self.after(1200, self._offer_resume)
         if not eng.alass_exe():
             self._log("Attention : alass introuvable dans le dossier bin — seule la correction de décalage global sera possible.")
 
@@ -325,6 +328,8 @@ class App(BaseTk):
         self.upd_btn = ctk.CTkButton(bar, text="Mises à jour…", width=120, fg_color="transparent", border_width=1,
                                      text_color=("gray10", "gray90"), command=self.open_updates)
         self.upd_btn.pack(side="right", padx=8)
+        ctk.CTkButton(bar, text="Notifications…", width=120, fg_color="transparent", border_width=1,
+                      text_color=("gray10", "gray90"), command=self.open_notifications).pack(side="right")
         hint = "  (glisser-déposer accepté)" if HAS_DND else ""
         ctk.CTkLabel(bar, text=hint, text_color=("gray40", "gray60")).pack(side="left", padx=10)
 
@@ -357,6 +362,13 @@ class App(BaseTk):
         side.grid_columnconfigure(0, weight=1)
         r = 0
         ctk.CTkLabel(side, text="Réglages", font=ctk.CTkFont(size=16, weight="bold")).grid(row=r, column=0, sticky="w", padx=14, pady=(12, 6)); r += 1
+        prf = ctk.CTkFrame(side, fg_color="transparent"); prf.grid(row=r, column=0, sticky="ew", padx=14, pady=(0, 8)); r += 1
+        ctk.CTkLabel(prf, text="Profil").pack(side="left")
+        self.profile = ctk.CTkComboBox(prf, values=self._profile_names(), width=140, command=self._load_profile)
+        self.profile.set("—"); self.profile.pack(side="left", padx=6)
+        ctk.CTkButton(prf, text="Enregistrer", width=74, command=self._save_profile).pack(side="left")
+        ctk.CTkButton(prf, text="✕", width=28, fg_color="transparent", border_width=1, text_color=("gray10", "gray90"),
+                      command=self._del_profile).pack(side="left", padx=(4, 0))
         ctk.CTkLabel(side, text="Méthode").grid(row=r, column=0, sticky="w", padx=14); r += 1
         self.mode = ModePicker(side); self.mode.set("Automatique")
         self.mode.grid(row=r, column=0, sticky="ew", padx=14, pady=(2, 2)); r += 1
@@ -462,6 +474,9 @@ class App(BaseTk):
         self.stop_btn = ctk.CTkButton(bot, text="Arrêter", height=40, width=90, fg_color="#9b3b3b", hover_color="#7d2f2f",
                                       command=self.stop, state="disabled")
         self.stop_btn.grid(row=0, column=1, padx=8)
+        self.end_action = ctk.CTkComboBox(bot, values=list(END_ACTIONS), width=190, command=lambda v: upd.save_settings(end_action=v))
+        self.end_action.set(upd.settings().get("end_action", "À la fin : rien") if upd.settings().get("end_action") in END_ACTIONS else "À la fin : rien")
+        self.end_action.grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
         pf = ctk.CTkFrame(bot, fg_color="transparent"); pf.grid(row=0, column=2, sticky="ew", padx=(8, 0))
         pf.grid_columnconfigure(0, weight=1)
         self.status = ctk.CTkLabel(pf, text="", anchor="w"); self.status.grid(row=0, column=0, sticky="ew")
@@ -816,8 +831,18 @@ class App(BaseTk):
             subprocess.Popen(["xdg-open", os.path.dirname(p)])
 
     # ------------------------------------------------------------------ traitement
-    def start(self):
+    def start(self, resume=None):
         if self.worker: return
+        if resume:
+            todo, opts = resume
+            self._queue_save(todo, opts)
+            for i in todo:
+                r = self.rows[i]; r.state = "wait"; r.results = []; r.error = ""; self._refresh(i)
+            self.stop_flag = False
+            self.go.configure(state="disabled"); self.stop_btn.configure(state="normal"); self.mode.configure(state="disabled")
+            self.prog.set(0); self._timer_start(len(todo))
+            self.worker = threading.Thread(target=self._work, args=(todo, opts), daemon=True); self.worker.start()
+            return
         mode = MODES[self.mode.get()]; creating = mode == "create"
         if mode == "merge":
             todo = [i for i, r in self.rows.items() if r.kind == "fus" and len(r.videos) == 2 and r.state != "run"]
@@ -843,9 +868,184 @@ class App(BaseTk):
                              faces=ENH_FACES.get(self.enh_faces.get(), "gfpgan"), face_strength=round(float(self.enh_fstr.get()), 2),
                              preclean=ENH_PRECLEAN.get(self.enh_pre.get(), ""), degrain=ENH_GRAIN.get(self.enh_grain.get(), "reduire"),
                              size=ENH_SIZE.get(self.enh_size.get(), "compact")))
+        self._queue_save(todo, opts)
         self.go.configure(state="disabled"); self.stop_btn.configure(state="normal"); self.mode.configure(state="disabled")
         self.prog.set(0); self._timer_start(len(todo))
         self.worker = threading.Thread(target=self._work, args=(todo, opts), daemon=True); self.worker.start()
+
+    # ------------------------------------------------------------------ file d'attente persistante
+    def _queue_save(self, todo, opts):
+        import json
+        self._queue = dict(opts=opts, ui_mode=self.mode.get(), items=[dict(iid=i, srt=self.rows[i].srt, videos=self.rows[i].videos,
+                                                                          kind=self.rows[i].kind, done=False) for i in todo])
+        self._queue_write()
+
+    def _queue_write(self):
+        import json
+        q = getattr(self, "_queue", None)
+        try:
+            if q and any(not it["done"] for it in q["items"]):
+                with open(QUEUE_FILE, "w", encoding="utf-8") as f:
+                    json.dump(dict(q, items=[{k: v for k, v in it.items() if k != "iid"} for it in q["items"]]), f, ensure_ascii=False)
+            elif os.path.exists(QUEUE_FILE):
+                os.remove(QUEUE_FILE)
+        except Exception:
+            pass
+
+    def _queue_mark(self, iid):
+        q = getattr(self, "_queue", None)
+        if not q: return
+        for it in q["items"]:
+            if it.get("iid") == iid: it["done"] = True
+        self._queue_write()
+
+    def _offer_resume(self):
+        import json
+        try:
+            with open(QUEUE_FILE, encoding="utf-8") as f: q = json.load(f)
+        except Exception:
+            return
+        left = [it for it in q.get("items", []) if not it.get("done") and all(os.path.exists(v) for v in it.get("videos", []))]
+        if not left:
+            try: os.remove(QUEUE_FILE)
+            except OSError: pass
+            return
+        names = "\n".join("• " + os.path.basename(it["videos"][0]) for it in left[:8]) + ("\n…" if len(left) > 8 else "")
+        if not messagebox.askyesno("SubSync", "Un traitement « %s » a été interrompu (%d élément(s) restant(s)) :\n\n%s\n\nLe reprendre maintenant ?\n"
+                                   "(Les améliorations vidéo repartent du dernier tronçon terminé.)" % (q.get("ui_mode", ""), len(left), names)):
+            if messagebox.askyesno("SubSync", "Oublier définitivement cette file d'attente ?"):
+                try: os.remove(QUEUE_FILE)
+                except OSError: pass
+            return
+        mode = q.get("ui_mode", "Automatique")
+        self.mode.set(mode); self._mode_help()
+        todo = []
+        for it in left:
+            row = Row(it.get("srt"), it["videos"], kind=it.get("kind", "sync"))
+            if row.kind == "fus":
+                self.fus_rows.append(row)
+            else:
+                self.sync_rows.append(row)
+        self._set_view("merge" if mode == "Fusion VF" else "sync", force=True)
+        wanted = {(it.get("srt"), tuple(it["videos"])) for it in left}
+        todo = [i for i, r in self.rows.items() if (r.srt, tuple(r.videos)) in wanted]
+        self._log("Reprise de la file d'attente interrompue : %d élément(s)." % len(todo))
+        self.start(resume=(todo, q["opts"]))
+
+    # ------------------------------------------------------------------ fin de traitement : action et notification
+    def _finish_actions(self, stopped):
+        rs = [r for r in self.rows.values() if r.results or r.error]
+        ok = sum(1 for r in rs if r.state in ("ok", "created")); bad = len(rs) - ok
+        msg = ("SubSync : traitement arrêté." if stopped else
+               "SubSync : traitement terminé — %d réussi(s)%s." % (ok, (", %d à vérifier ou en erreur" % bad) if bad else ""))
+        try: self.bell(); self.focus_force()
+        except Exception: pass
+        self._notify(msg)
+        act = END_ACTIONS.get(self.end_action.get(), "")
+        if act and not stopped: self._countdown(act)
+
+    def _notify(self, msg):
+        st = upd.settings(); topic = (st.get("ntfy_topic") or "").strip()
+        if not st.get("ntfy_on") or not topic: return
+        def run():
+            try:
+                import urllib.request
+                urllib.request.urlopen(urllib.request.Request("https://ntfy.sh/" + topic, data=msg.encode("utf-8"),
+                                       headers={"Title": "SubSync", "Tags": "movie_camera"}), timeout=20).read()
+            except Exception as e:
+                self.q.put(("log", "Notification impossible : %s" % e))
+        threading.Thread(target=run, daemon=True).start()
+
+    def _countdown(self, act):
+        w = ctk.CTkToplevel(self); w.title("SubSync"); w.geometry("420x170"); w.transient(self); w.attributes("-topmost", True)
+        what = "mise en veille" if act == "sleep" else "arrêt du PC"
+        lab = ctk.CTkLabel(w, text="", font=ctk.CTkFont(size=15)); lab.pack(pady=(28, 12))
+        st = {"n": 60, "cancel": False}
+        ctk.CTkButton(w, text="Annuler", width=140, command=lambda: (st.update(cancel=True), w.destroy())).pack()
+        def tick():
+            if st["cancel"]: return
+            if st["n"] <= 0:
+                w.destroy(); self._do_power(act); return
+            lab.configure(text="Traitement terminé : %s dans %d s…" % (what, st["n"])); st["n"] -= 1; w.after(1000, tick)
+        tick()
+
+    def _do_power(self, act):
+        if os.name != "nt":
+            self._log("(action de fin « %s » ignorée hors Windows)" % act); return
+        try:
+            if act == "shutdown": subprocess.Popen(["shutdown", "/s", "/t", "0"], creationflags=0x08000000)
+            else: subprocess.Popen(["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"], creationflags=0x08000000)
+        except Exception as e:
+            self._log("Action de fin impossible : %s" % e)
+
+    def open_notifications(self):
+        import secrets
+        st = upd.settings()
+        w = ctk.CTkToplevel(self); w.title("Notifications sur téléphone"); w.geometry("560x380"); w.transient(self); w.grab_set()
+        on = ctk.CTkCheckBox(w, text="M'envoyer une notification sur mon téléphone à la fin des traitements")
+        on.pack(anchor="w", padx=16, pady=(16, 8))
+        if st.get("ntfy_on"): on.select()
+        topic = st.get("ntfy_topic") or "subsync-" + secrets.token_hex(5)
+        ctk.CTkLabel(w, justify="left", wraplength=520, text=(
+            "1. Installez l'application gratuite « ntfy » sur votre téléphone (Play Store / App Store).\n"
+            "2. Dans ntfy, touchez « + » (s'abonner) et tapez exactement ce nom de sujet :")).pack(anchor="w", padx=16)
+        e = ctk.CTkEntry(w, width=300); e.insert(0, topic); e.pack(anchor="w", padx=16, pady=6)
+        ctk.CTkLabel(w, justify="left", wraplength=520, text_color=("gray35", "gray65"), text=(
+            "Ce nom est votre « adresse » : gardez-le pour vous (toute personne qui le connaît peut lire ces notifications)."
+            " Les messages indiquent seulement la fin du traitement et le nombre d'épisodes réussis.")).pack(anchor="w", padx=16)
+        def save():
+            upd.save_settings(ntfy_on=bool(on.get()), ntfy_topic=e.get().strip())
+        def test():
+            save(); was = upd.settings().get("ntfy_on"); upd.save_settings(ntfy_on=True)
+            self._notify("SubSync : ceci est une notification de test."); upd.save_settings(ntfy_on=was)
+            messagebox.showinfo("SubSync", "Notification de test envoyée : elle doit arriver sur votre téléphone d'ici quelques secondes.", parent=w)
+        b = ctk.CTkFrame(w, fg_color="transparent"); b.pack(anchor="w", padx=16, pady=14)
+        ctk.CTkButton(b, text="Envoyer un test", command=test).pack(side="left")
+        ctk.CTkButton(b, text="Enregistrer", command=lambda: (save(), w.destroy())).pack(side="left", padx=8)
+        w.protocol("WM_DELETE_WINDOW", lambda: (save(), w.destroy()))
+
+    # ------------------------------------------------------------------ profils de réglages
+    def _profile_names(self):
+        return sorted(upd.settings().get("profiles", {})) or ["—"]
+
+    def _collect(self):
+        return dict(mode=self.mode.get(), sub_lang=self.sub_lang.get(), aud_lang=self.aud_lang.get(), quality=self.quality.get(),
+                    translator=self.translator.get(), keep_langs=[c for c, cb in self.keep_langs.items() if cb.get()],
+                    enh_preset=self.enh_preset.get(), enh_res=self.enh_res.get(), enh_faces=self.enh_faces.get(),
+                    enh_fstr=float(self.enh_fstr.get()), enh_pre=self.enh_pre.get(), enh_grain=self.enh_grain.get(),
+                    enh_size=self.enh_size.get(), enh_pdur=self.enh_pdur.get(), out_dir=self.out_dir)
+
+    def _apply(self, d):
+        if d.get("mode") in MODES: self.mode.set(d["mode"])
+        for k, wdg in (("sub_lang", self.sub_lang), ("aud_lang", self.aud_lang), ("quality", self.quality), ("translator", self.translator),
+                       ("enh_preset", self.enh_preset), ("enh_res", self.enh_res), ("enh_faces", self.enh_faces), ("enh_pre", self.enh_pre),
+                       ("enh_grain", self.enh_grain), ("enh_size", self.enh_size), ("enh_pdur", self.enh_pdur)):
+            if d.get(k): wdg.set(d[k])
+        if "enh_fstr" in d: self.enh_fstr.set(d["enh_fstr"])
+        if "keep_langs" in d:
+            for c, cb in self.keep_langs.items(): (cb.select() if c in d["keep_langs"] else cb.deselect())
+        if "out_dir" in d:
+            self.out_dir = d["out_dir"] if d["out_dir"] and os.path.isdir(d["out_dir"]) else None
+            self.out_lbl.configure(text=self.out_dir or "À côté de chaque vidéo")
+        self._mode_help(); self._save_enh()
+
+    def _save_profile(self):
+        name = ctk.CTkInputDialog(title="Profil", text="Nom du profil (ex. « Au-delà du réel ») :").get_input()
+        if not name or not name.strip(): return
+        st = upd.settings(); pr = st.get("profiles", {}); pr[name.strip()] = self._collect(); upd.save_settings(profiles=pr)
+        self.profile.configure(values=self._profile_names()); self.profile.set(name.strip())
+        self._log("Profil « %s » enregistré." % name.strip())
+
+    def _load_profile(self, name):
+        d = upd.settings().get("profiles", {}).get(name)
+        if d: self._apply(d); self._log("Profil « %s » appliqué." % name)
+
+    def _del_profile(self):
+        name = self.profile.get(); pr = upd.settings().get("profiles", {})
+        if name not in pr: return
+        if not messagebox.askyesno("SubSync", "Supprimer le profil « %s » ?" % name): return
+        pr.pop(name); upd.save_settings(profiles=pr)
+        self.profile.configure(values=self._profile_names()); self.profile.set("—")
 
     @staticmethod
     def _fmt_dur(sec):
@@ -1147,9 +1347,11 @@ class App(BaseTk):
                     if m[2] == "run": self.t_item = time.time()
                     if m[1] in self.rows: self.rows[m[1]].state = m[2]; self._refresh(m[1])
                 elif kind == "done":
+                    self._queue_mark(m[1])
                     if m[1] in self.rows:
                         r = self.rows[m[1]]; r.state = m[2]; r.results = m[3]; self._refresh(m[1])
                 elif kind == "err":
+                    self._queue_mark(m[1])
                     if m[1] in self.rows:
                         r = self.rows[m[1]]; r.state = "err"; r.error = m[2]; self._refresh(m[1])
                 elif kind == "upd_found":
@@ -1180,6 +1382,7 @@ class App(BaseTk):
                     else:
                         self.status.configure(text="Terminé : %d bon(s), %d à vérifier." % (nb_ok, len(rs) - nb_ok - nb_c))
                     self.prog.set(1)
+                    self._finish_actions(self.stop_flag)
                 self._show_detail()
         except queue.Empty:
             pass

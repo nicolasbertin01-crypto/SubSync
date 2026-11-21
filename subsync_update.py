@@ -9,7 +9,7 @@ API = "https://api.github.com/repos/%s" % REPO
 RAW = "https://raw.githubusercontent.com/%s/%s/" % (REPO, BRANCH)          # dépôt public : sans limite d'appels
 ZIP = "https://codeload.github.com/%s/zip/refs/heads/%s" % (REPO, BRANCH)
 # fichiers personnels jamais écrasés s'ils existent déjà
-KEEP_IF_EXISTS = {"glossaire.txt", "reglages.json"}
+KEEP_IF_EXISTS = {"glossaire.txt", "reglages.json", "file_attente.json"}
 # dossiers locaux jamais touchés
 SKIP_DIRS = {".git", ".venv", ".venv_video", "python", ".uvcache", "cache", "logs", "llm", "backup_maj", "__pycache__"}
 NOWIN = 0x08000000 if os.name == "nt" else 0

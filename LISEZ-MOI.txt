@@ -1,4 +1,4 @@
-﻿SubSync 1.12 - synchronisation automatique de sous-titres
+﻿SubSync 1.13 - synchronisation automatique de sous-titres
 ==========================================================
 
 INSTALLATION (une seule fois)
@@ -75,6 +75,17 @@ LES MÉTHODES
 
   « Seulement les lignes sélectionnées » (tous les modes) : ne traite que
   les lignes surlignées (Ctrl+clic / Maj+clic pour en choisir plusieurs).
+
+PROFILS, FILE D'ATTENTE, FIN DE TRAITEMENT
+  Profil (en haut à droite) : « Enregistrer » mémorise tous les réglages sous
+  un nom (ex. le nom de la série) ; choisissez-le dans la liste pour les
+  réappliquer. « ✕ » le supprime.
+  Si un traitement est interrompu (fermeture, coupure, plantage), SubSync
+  propose de le reprendre au démarrage suivant.
+  Sous le bouton de lancement : « À la fin : rien / mettre en veille /
+  éteindre le PC » (60 s pour annuler).
+  « Notifications… » (en haut) : notification sur le téléphone à la fin, via
+  l'application gratuite ntfy (suivez les 2 étapes indiquées).
 
 MISES À JOUR
   Bouton « Mises à jour… » en haut à droite. SubSync vérifie une fois par jour

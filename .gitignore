@@ -16,3 +16,4 @@ reglages.json
 __pycache__/
 *.pyc
 backup_maj/
+file_attente.json
