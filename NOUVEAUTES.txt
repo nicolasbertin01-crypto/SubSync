@@ -1,3 +1,6 @@
+SubSync 1.14
+- Tout-en-un : case « Tout-en-un : puis améliorer l'image » dans les modes de synchronisation, Créer et Fusion VF. Après la synchro (ou la création) des sous-titres, la vidéo est améliorée avec les réglages du mode Améliorer et les sous-titres y sont intégrés directement (fichier unique « … - HD.mkv »). Après une Fusion VF, la version VF est améliorée si elle est en dessous de 1080p (« … - VF HD.mkv »).
+
 SubSync 1.13
 - File d'attente qui survit aux redémarrages : si SubSync est fermé, le PC éteint ou en cas de plantage pendant un traitement, SubSync propose au démarrage suivant de reprendre les épisodes restants (les améliorations repartent du dernier tronçon terminé).
 - Action à la fin des traitements : rien / mettre en veille / éteindre le PC (avec 60 s pour annuler). Menu sous le bouton de lancement.

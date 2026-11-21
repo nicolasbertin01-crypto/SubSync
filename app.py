@@ -259,6 +259,10 @@ class ModePicker(ctk.CTkFrame):
         if kw: super().configure(**kw)
 
 
+def lang_title(code):
+    return {"fre": "Français", "eng": "Anglais", "ger": "Allemand", "spa": "Espagnol", "ita": "Italien"}.get(code, code)
+
+
 def video_ready():
     d = os.path.join(APP_DIR, "models", "video")
     return os.path.exists(VIDEO_PY) and all(os.path.exists(os.path.join(d, f)) for f in ("upscale_equilibre.onnx", "scrfd_2.5g.onnx", "gpen_bfr_512.onnx", "gfpgan_1.4.onnx"))
@@ -445,6 +449,10 @@ class App(BaseTk):
         self.enh_help = ctk.CTkLabel(self.enh_row, text="", text_color=("gray35", "gray65"), font=ctk.CTkFont(size=11), wraplength=262, justify="left")
         self.enh_help.grid(row=14, column=0, columnspan=2, sticky="w", pady=(6, 0))
         self.enh_row.grid_remove()
+        self.chain = ctk.CTkCheckBox(side, text="Tout-en-un : puis améliorer l'image\n(réglages du mode Améliorer, vidéos < 1080p)")
+        self.chain.grid(row=r, column=0, sticky="w", padx=14, pady=(10, 0)); r += 1
+        if upd.settings().get("chain"): self.chain.select()
+        self.chain.configure(command=lambda: upd.save_settings(chain=bool(self.chain.get())))
         self.only_sel = ctk.CTkCheckBox(side, text="Seulement les lignes sélectionnées")
         self.only_sel.grid(row=r, column=0, sticky="w", padx=14, pady=(10, 0)); r += 1
         self.out_title = ctk.CTkLabel(side, text="Enregistrer les sous-titres")
@@ -509,6 +517,8 @@ class App(BaseTk):
             if m == "Fusion VF": self.fus_row.grid(); self.lang_frame.grid_remove()
             else: self.fus_row.grid_remove(); self.lang_frame.grid()
             self.out_title.configure(text="Enregistrer les vidéos" if m in ("Fusion VF", "Améliorer") else "Enregistrer les sous-titres")
+            if m == "Améliorer": self.chain.grid_remove()
+            else: self.chain.grid()
             if m == "Améliorer":
                 self.enh_row.grid(); self.lang_frame.grid_remove()
                 self.enh_help.configure(text=("Résultat : « nom - HD.mkv ». Seuls les visages presque de face sont retouchés (les profils sont laissés tels quels pour éviter les déformations). 30-45 % conseillé."
@@ -867,7 +877,9 @@ class App(BaseTk):
                     enh=dict(preset=ENH_PRESETS.get(self.enh_preset.get(), "fidele"), target_h=1080 if self.enh_res.get() == "1080p" else 720,
                              faces=ENH_FACES.get(self.enh_faces.get(), "gfpgan"), face_strength=round(float(self.enh_fstr.get()), 2),
                              preclean=ENH_PRECLEAN.get(self.enh_pre.get(), ""), degrain=ENH_GRAIN.get(self.enh_grain.get(), "reduire"),
-                             size=ENH_SIZE.get(self.enh_size.get(), "compact")))
+                             size=ENH_SIZE.get(self.enh_size.get(), "compact")), chain=bool(self.chain.get()))
+        if opts["chain"] and mode != "enhance" and not video_ready():
+            messagebox.showinfo("SubSync", "« Tout-en-un » demande l'amélioration vidéo : lancez une fois « Installer l'amélioration vidéo.bat »."); return
         self._queue_save(todo, opts)
         self.go.configure(state="disabled"); self.stop_btn.configure(state="normal"); self.mode.configure(state="disabled")
         self.prog.set(0); self._timer_start(len(todo))
@@ -1100,8 +1112,10 @@ class App(BaseTk):
                                                log=lg, progress=lambda f, j=j: prog((j + f) / len(r.videos)), cancel=cc,
                                                translator=opts["translator"])
                 else:
-                    o = {k_: v_ for k_, v_ in opts.items() if k_ not in ("quality", "translator", "keep_langs", "enh")}
+                    o = {k_: v_ for k_, v_ in opts.items() if k_ not in ("quality", "translator", "keep_langs", "enh", "chain")}
                     res = eng.run_job(r.srt, r.videos, log=lg, progress=prog, cancel=cc, **o)
+                if opts.get("chain") and opts["mode"] != "enhance" and not self.stop_flag:
+                    res = self._chain_enhance(opts, res, lg, cc)
                 lvl = "created" if opts["mode"] == "create" else "ok"
                 for x in ([] if opts["mode"] == "create" else res):
                     if x.level == "bad": lvl = "bad"
@@ -1159,7 +1173,7 @@ class App(BaseTk):
         out = os.path.join(d, stem + " - HD.mkv")
         if os.path.abspath(out) == os.path.abspath(video): out = os.path.join(d, stem + " - HD (2).mkv")
         work = os.path.join(d, ".subsync_hd_" + stem + "_" + self._enh_tag(e))
-        job = dict(info, ffmpeg=eng.ffmpeg_exe(), src=video, out=out, work=work, sharpen=0.35, **e)
+        job = dict(info, ffmpeg=eng.ffmpeg_exe(), src=video, out=out, work=work, sharpen=0.35, extra_subs=opts.get("extra_subs", []), **e)
         log("Amélioration de « %s » : %d×%d, %.3f i/s, ~%d images" % (os.path.basename(video), info["width"], info["height"],
                                                                     info["fps_num"] / info["fps_den"], info["frames"]))
         try:
@@ -1170,6 +1184,42 @@ class App(BaseTk):
         summ = "%s → %dp%s · %.1f images/s" % (os.path.basename(out), e["target_h"],
                                                (", %d visages restaurés" % result.get("faces", 0)) if e["faces"] else "", fps)
         return eng.Result(video, out, "amélioration", 100.0, "ok", summ, {}, [])
+
+    LANG3 = {"fr": "fre", "en": "eng", "de": "ger", "es": "spa", "it": "ita", "pt": "por", "nl": "dut", "ja": "jpn", "pl": "pol", "ru": "rus"}
+
+    def _chain_enhance(self, opts, res, log, cancel):
+        """Tout-en-un : après la fusion VF ou les sous-titres, améliore l'image et y intègre les sous-titres."""
+        out = list(res)
+        jobs = []
+        if opts["mode"] == "merge":
+            for x in res:
+                if x.out_path and os.path.exists(x.out_path): jobs.append((x.out_path, [], True))
+        else:
+            by_video = {}
+            for x in res:
+                if getattr(x, "out_path", None) and x.out_path.lower().endswith(".srt") and x.level != "bad":
+                    by_video.setdefault(x.video, []).append(x.out_path)
+            for v, srts in by_video.items(): jobs.append((v, srts, False))
+        for v, srts, temp in jobs:
+            if cancel(): raise eng.Cancelled()
+            try: h = merge.video_info(v)["height"]
+            except Exception: h = 0
+            if h >= 1000:
+                log("Tout-en-un : « %s » est déjà en HD (%dp), amélioration de l'image inutile." % (os.path.basename(v), h)); continue
+            lang = self.LANG3.get(opts.get("sub_lang", "fr"), opts.get("sub_lang", "fre"))
+            extra = [dict(path=s_, lang=lang, title="%s (SubSync)" % lang_title(lang)) for s_ in srts]
+            log("Tout-en-un : amélioration de l'image de « %s »%s…" % (os.path.basename(v), (" + %d fichier(s) de sous-titres intégré(s)" % len(srts)) if srts else ""))
+            o2 = dict(opts, extra_subs=extra)
+            r2 = self._enhance(v, o2, log, lambda f: None, cancel)
+            if temp and os.path.exists(r2.out_path):
+                # fichier intermédiaire de la fusion : remplacé par la version améliorée
+                final = v[:-4] + " HD.mkv" if v.lower().endswith(".mkv") else r2.out_path
+                try:
+                    os.replace(r2.out_path, final); os.remove(v); r2.out_path = final
+                    r2.summary = os.path.basename(final) + " · " + r2.summary.split(" · ", 1)[-1]
+                except OSError: pass
+            out.append(r2)
+        return out
 
     # ------------------------------------------------------------------ aperçu
     def _enh_opts(self):

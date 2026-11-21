@@ -1,4 +1,4 @@
-﻿SubSync 1.13 - synchronisation automatique de sous-titres
+﻿SubSync 1.14 - synchronisation automatique de sous-titres
 ==========================================================
 
 INSTALLATION (une seule fois)
@@ -75,6 +75,12 @@ LES MÉTHODES
 
   « Seulement les lignes sélectionnées » (tous les modes) : ne traite que
   les lignes surlignées (Ctrl+clic / Maj+clic pour en choisir plusieurs).
+
+TOUT-EN-UN
+  Case « Tout-en-un : puis améliorer l'image » (modes synchro, Créer, Fusion
+  VF) : enchaîne automatiquement l'amélioration de l'image (réglages du mode
+  Améliorer) et intègre les sous-titres synchronisés/créés dans la vidéo.
+  Les vidéos déjà en 1080p ne sont pas réaméliorées.
 
 PROFILS, FILE D'ATTENTE, FIN DE TRAITEMENT
   Profil (en haut à droite) : « Enregistrer » mémorise tous les réglages sous

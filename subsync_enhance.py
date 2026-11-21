@@ -251,17 +251,27 @@ def run(job):
     lst = os.path.join(work, "liste.txt")
     with open(lst, "w", encoding="utf-8") as f:
         for k in range(nseg): f.write("file '%s'\n" % os.path.join(work, "seg_%05d.mkv" % k).replace("\\", "/").replace("'", "'\\''"))
+    extra = [x for x in job.get("extra_subs", []) if os.path.exists(x["path"])]
+
     def mux(with_subs):
         a = [ff, "-v", "error", "-y"]
         if job.get("vstart", 0) > 0.001: a += ["-itsoffset", "%.3f" % job["vstart"]]
-        a += ["-f", "concat", "-safe", "0", "-i", lst, "-i", src, "-map", "0:v:0", "-map", "1:a?"]
+        a += ["-f", "concat", "-safe", "0", "-i", lst, "-i", src]
+        for x in extra: a += ["-sub_charenc", "UTF-8", "-i", x["path"]]
+        a += ["-map", "0:v:0", "-map", "1:a?"]
         if with_subs: a += ["-map", "1:s?"]
+        for j in range(len(extra)): a += ["-map", "%d:0" % (2 + j)]
         # max_interleave_delta 0 : son et image strictement entrelacés dans le fichier (sinon tout le son peut
         # se retrouver regroupé au début du fichier et les lecteurs n'en jouent rien)
         a += ["-map", "1:t?", "-c", "copy", "-map_metadata", "1", "-map_chapters", "1", "-max_interleave_delta", "0"]
         if with_subs:
             for i, c in enumerate(job.get("sub_codecs", [])):
                 if c == "mov_text": a += ["-c:s:%d" % i, "srt"]
+        base = len(job.get("sub_codecs", [])) if with_subs else 0
+        for j, x in enumerate(extra):
+            k = base + j
+            a += ["-c:s:%d" % k, "srt", "-metadata:s:s:%d" % k, "language=" + x.get("lang", "fre"),
+                  "-metadata:s:s:%d" % k, "title=" + x.get("title", "SubSync")]
         return subprocess.run(a + [tmp_out], capture_output=True, creationflags=NOWIN)
     tmp_out = out[:-4] + ".part.mkv"
     r = mux(True)
