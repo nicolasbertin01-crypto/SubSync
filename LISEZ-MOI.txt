@@ -1,4 +1,4 @@
-﻿SubSync 1.11.1 - synchronisation automatique de sous-titres
+﻿SubSync 1.12 - synchronisation automatique de sous-titres
 ==========================================================
 
 INSTALLATION (une seule fois)
@@ -108,9 +108,11 @@ AMÉLIORATION VIDÉO (mode Améliorer)
     Fichier     Compact ≈ 1 Go (conseillé, encodage x265 sur le processeur)
                 / Qualité maximale ≈ 3 Go (encodeur de la carte graphique).
   APERÇU : sélectionnez une vidéo, réglez, cliquez « Aperçu » (moment
-  facultatif, ex. 10:05, et durée des extraits : 3 à 60 s). Fenêtre de comparaison : faites
-  glisser la souris pour déplacer la séparation avant/après, clic droit pour
-  zoomer, « Voir en vidéo » pour l'extrait côte à côte. Relancez un aperçu
+  facultatif, ex. 10:05, et durée des extraits : 3 à 60 s). Fenêtre de comparaison : clic
+  gauche glissé = séparation avant/après ; molette = zoom des deux côtés à la
+  fois ; clic droit glissé = se déplacer ; double-clic = vue entière ;
+  « Lire la vidéo » = lecture de l'extrait dans la fenêtre (zoom possible
+  pendant la lecture) ; « Ouvrir dans le lecteur » = vidéo côte à côte. Relancez un aperçu
   avec d'autres réglages : « À gauche : Réglage précédent » compare les deux.
   Sons, sous-titres, chapitres : copiés tels quels. Résultat « nom - HD.mkv ».
   Durée : environ 1 h par épisode de 45 min sur une bonne carte graphique.

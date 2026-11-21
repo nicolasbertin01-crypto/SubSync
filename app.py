@@ -35,13 +35,16 @@ VIDEO_PY = os.path.join(APP_DIR, ".venv_video", "Scripts", "python.exe") if os.n
 
 
 class PreviewWindow(ctk.CTkToplevel):
-    """Comparaison avant / après avec un curseur à glisser, zoom par clic, vidéo côte à côte."""
+    """Comparaison avant / après : image fixe ou vidéo, séparation à glisser, zoom à la molette (synchronisé
+    des deux côtés), déplacement clic droit glissé, double-clic = vue entière."""
     W, H = 960, 720
 
     def __init__(self, app, pv, other=None):
         super().__init__(app)
-        self.title("Aperçu — " + os.path.basename(pv["video"])); self.geometry("1000x900"); self.transient(app)
-        self.pv = pv; self.other = other; self.idx = 0; self.split = 0.5; self.zoom = None
+        self.title("Aperçu — " + os.path.basename(pv["video"])); self.geometry("1000x930"); self.transient(app)
+        self.pv = pv; self.other = other; self.idx = 0; self.split = 0.5
+        self.z = 1.0; self.cx = 0.5; self.cy = 0.5          # zoom et centre de la vue (coordonnées 0-1)
+        self.playing = False; self._dec = None; self._frame = None; self._pan = None
         d = pv["data"]
         ctk.CTkLabel(self, text="Réglage : " + pv["label"], font=ctk.CTkFont(weight="bold"), wraplength=960, justify="left").pack(anchor="w", padx=14, pady=(10, 0))
         est = ""
@@ -53,22 +56,39 @@ class PreviewWindow(ctk.CTkToplevel):
         bar = ctk.CTkFrame(self, fg_color="transparent"); bar.pack(fill="x", padx=14, pady=6)
         items = d.get("items", [])
         if len(items) > 1:
-            ctk.CTkSegmentedButton(bar, values=["Extrait %d (%d:%02d)" % (i + 1, int(it["time"]) // 60, int(it["time"]) % 60) for i, it in enumerate(items)],
-                                   command=self._pick).pack(side="left")
+            sb = ctk.CTkSegmentedButton(bar, values=["Extrait %d (%d:%02d)" % (i + 1, int(it["time"]) // 60, int(it["time"]) % 60) for i, it in enumerate(items)],
+                                        command=self._pick)
+            sb.set(sb.cget("values")[0]); sb.pack(side="left")
         self.left = ctk.StringVar(value="Original")
         if other:
             ctk.CTkLabel(bar, text="  À gauche :").pack(side="left")
-            ctk.CTkSegmentedButton(bar, values=["Original", "Réglage précédent"], variable=self.left, command=lambda v: self._draw()).pack(side="left", padx=4)
-        ctk.CTkButton(bar, text="Voir en vidéo", width=110, command=self._video).pack(side="right")
+            ctk.CTkSegmentedButton(bar, values=["Original", "Réglage précédent"], variable=self.left, command=lambda v: self._reload()).pack(side="left", padx=4)
+        ctk.CTkButton(bar, text="Ouvrir dans le lecteur", width=150, fg_color="transparent", border_width=1,
+                      text_color=("gray10", "gray90"), command=self._video).pack(side="right")
+        bar2 = ctk.CTkFrame(self, fg_color="transparent"); bar2.pack(fill="x", padx=14)
+        self.play_btn = ctk.CTkButton(bar2, text="▶  Lire la vidéo", width=140, command=self._toggle_play); self.play_btn.pack(side="left")
+        ctk.CTkButton(bar2, text="Image suivante ▸", width=130, command=self._step).pack(side="left", padx=6)
+        self.zlabel = ctk.CTkLabel(bar2, text="Zoom ×1"); self.zlabel.pack(side="left", padx=10)
+        ctk.CTkButton(bar2, text="Vue entière", width=100, command=self._reset).pack(side="left")
         self.cv = ctk.CTkCanvas(self, width=self.W, height=self.H, highlightthickness=0, bg="black"); self.cv.pack(padx=14, pady=4)
         self.legend = ctk.CTkLabel(self, text=""); self.legend.pack(anchor="w", padx=14)
-        ctk.CTkLabel(self, text="Glissez la souris sur l'image pour déplacer la séparation · clic droit : zoom ×3 à cet endroit (re-clic droit : vue entière)",
+        ctk.CTkLabel(self, text="Clic gauche glissé : séparation avant/après · molette : zoom (les deux côtés) · clic droit glissé : déplacer · double-clic : vue entière",
                      text_color=("gray35", "gray65")).pack(anchor="w", padx=14, pady=(0, 10))
-        self.cv.bind("<B1-Motion>", self._drag); self.cv.bind("<Button-1>", self._drag); self.cv.bind("<Button-3>", self._zoom)
+        self.cv.bind("<B1-Motion>", self._drag); self.cv.bind("<Button-1>", self._drag)
+        self.cv.bind("<MouseWheel>", self._wheel)                                   # Windows
+        self.cv.bind("<Button-4>", lambda e: self._wheel(e, 120)); self.cv.bind("<Button-5>", lambda e: self._wheel(e, -120))
+        self.cv.bind("<ButtonPress-3>", self._pan_start); self.cv.bind("<B3-Motion>", self._pan_move)
+        self.cv.bind("<Double-Button-1>", lambda e: self._reset())
+        self.protocol("WM_DELETE_WINDOW", self._close)
         self._load(); self._draw()
 
+    # --- données
     def _pick(self, v):
-        self.idx = int(v.split()[1]) - 1; self._load(); self._draw()
+        self.idx = int(v.split()[1]) - 1; self._reload()
+
+    def _reload(self):
+        was = self.playing; self._stop_video(); self._load(); self._draw()
+        if was: self._toggle_play()
 
     def _load(self):
         from PIL import Image
@@ -79,31 +99,123 @@ class PreviewWindow(ctk.CTkToplevel):
         if self.other:
             try: self.prev_img = Image.open(self.other["data"]["items"][self.idx]["apres"]).convert("RGB").resize(self.after_img.size)
             except Exception: self.prev_img = None
+        self._frame = None
 
+    def _use_prev(self):
+        return self.left.get() == "Réglage précédent" and self.prev_img is not None
+
+    # --- vidéo (les fichiers côte à côte : moitié gauche = original, moitié droite = amélioré)
+    def _sbs(self, pv):
+        v = pv["data"]["items"][self.idx]["video"]
+        return v if v.endswith(".mp4") else None
+
+    def _toggle_play(self):
+        if self.playing:
+            self.playing = False; self.play_btn.configure(text="▶  Lire la vidéo"); return
+        if self._dec is None:
+            import av
+            cur = self._sbs(self.pv); prv = self._sbs(self.other) if (self.other and self._use_prev()) else None
+            if not cur:
+                messagebox.showinfo("SubSync", "Vidéo d'aperçu indisponible.", parent=self); return
+            try:
+                self._dec = [av.open(cur)] + ([av.open(prv)] if prv else [])
+                self._it = [c.decode(video=0) for c in self._dec]
+                self._fps = float(self._dec[0].streams.video[0].average_rate or 24)
+            except Exception as e:
+                self._dec = None; messagebox.showinfo("SubSync", "Lecture impossible : %s" % e, parent=self); return
+        self.playing = True; self.play_btn.configure(text="⏸  Pause"); self._tick()
+
+    def _next_frames(self):
+        try:
+            fr = [next(i).to_image() for i in self._it]
+        except StopIteration:                       # boucle
+            self._stop_video(); self._toggle_play_reopen = True
+            return None
+        w = fr[0].width // 2
+        a = fr[1].crop((w, 0, 2 * w, fr[1].height)) if len(fr) > 1 else fr[0].crop((0, 0, w, fr[0].height))
+        b = fr[0].crop((w, 0, 2 * w, fr[0].height))
+        return a, b
+
+    def _tick(self):
+        if not self.playing: return
+        t0 = time.time()
+        f = self._next_frames()
+        if f is None:
+            if getattr(self, "_toggle_play_reopen", False):
+                self._toggle_play_reopen = False; self._toggle_play()
+            return
+        self._frame = f; self._draw()
+        self.after(max(1, int(1000 / self._fps - (time.time() - t0) * 1000)), self._tick)
+
+    def _step(self):
+        if self.playing: self._toggle_play()
+        if self._dec is None:
+            self._toggle_play(); self.playing = False; self.play_btn.configure(text="▶  Lire la vidéo")
+        f = self._next_frames()
+        if f is None:
+            self._toggle_play_reopen = False
+            return
+        self._frame = f; self._draw()
+
+    def _stop_video(self):
+        self.playing = False
+        try: self.play_btn.configure(text="▶  Lire la vidéo")
+        except Exception: pass
+        for c in (self._dec or []):
+            try: c.close()
+            except Exception: pass
+        self._dec = None; self._frame = None
+
+    def _close(self):
+        self._stop_video(); self.destroy()
+
+    # --- affichage
     def _view(self, im):
-        if self.zoom:
-            zx, zy = self.zoom; w, h = im.size; cw, ch = w // 3, h // 3
-            x0 = min(max(0, int(zx * w - cw / 2)), w - cw); y0 = min(max(0, int(zy * h - ch / 2)), h - ch)
-            im = im.crop((x0, y0, x0 + cw, y0 + ch))
-        return im.resize((self.W, self.H))
+        w, h = im.size; cw, ch = w / self.z, h / self.z
+        x0 = min(max(0.0, self.cx * w - cw / 2), w - cw); y0 = min(max(0.0, self.cy * h - ch / 2), h - ch)
+        self.cx = (x0 + cw / 2) / w; self.cy = (y0 + ch / 2) / h
+        return im.crop((int(x0), int(y0), int(x0 + cw), int(y0 + ch))).resize((self.W, self.H))
 
     def _draw(self):
-        from PIL import Image, ImageTk
-        left = self.prev_img if (self.left.get() == "Réglage précédent" and self.prev_img is not None) else self.before_img
-        a = self._view(left); b = self._view(self.after_img)
+        from PIL import ImageTk
+        if self._frame is not None:
+            left, right = self._frame
+        else:
+            left = self.prev_img if self._use_prev() else self.before_img; right = self.after_img
+        if left.size != right.size: left = left.resize(right.size)
+        a = self._view(left); b = self._view(right)
         x = int(self.split * self.W)
         comp = b.copy(); comp.paste(a.crop((0, 0, x, self.H)), (0, 0))
         self._tk = ImageTk.PhotoImage(comp)
         self.cv.delete("all"); self.cv.create_image(0, 0, image=self._tk, anchor="nw")
         self.cv.create_line(x, 0, x, self.H, fill="white", width=2)
-        lt = "Réglage précédent : " + self.other["label"] if left is self.prev_img and self.prev_img is not None else "Original (agrandi simplement)"
+        lt = "Réglage précédent : " + self.other["label"] if self._use_prev() else "Original (agrandi simplement)"
         self.legend.configure(text="◀ %s      |      Réglage actuel ▶" % lt)
+        self.zlabel.configure(text="Zoom ×%g" % round(self.z, 1))
 
     def _drag(self, ev):
         self.split = min(1.0, max(0.0, ev.x / self.W)); self._draw()
 
-    def _zoom(self, ev):
-        self.zoom = None if self.zoom else (ev.x / self.W, ev.y / self.H); self._draw()
+    def _wheel(self, ev, delta=None):
+        d = delta if delta is not None else ev.delta
+        mx, my = ev.x / self.W, ev.y / self.H
+        # point de l'image sous la souris, avant zoom
+        px = self.cx + (mx - 0.5) / self.z; py = self.cy + (my - 0.5) / self.z
+        self.z = min(8.0, max(1.0, self.z * (1.25 if d > 0 else 0.8)))
+        if self.z <= 1.0001: self.cx = self.cy = 0.5
+        else: self.cx = px - (mx - 0.5) / self.z; self.cy = py - (my - 0.5) / self.z
+        self._draw()
+
+    def _pan_start(self, ev):
+        self._pan = (ev.x, ev.y, self.cx, self.cy)
+
+    def _pan_move(self, ev):
+        if not self._pan or self.z <= 1: return
+        x0, y0, cx, cy = self._pan
+        self.cx = cx - (ev.x - x0) / self.W / self.z; self.cy = cy - (ev.y - y0) / self.H / self.z; self._draw()
+
+    def _reset(self):
+        self.z = 1.0; self.cx = self.cy = 0.5; self._draw()
 
     def _video(self):
         v = self.pv["data"]["items"][self.idx]["video"]
@@ -111,7 +223,7 @@ class PreviewWindow(ctk.CTkToplevel):
             if os.name == "nt": os.startfile(v)
             else: subprocess.Popen(["xdg-open", v])
         except Exception as e:
-            messagebox.showinfo("SubSync", "Impossible d'ouvrir la vidéo : %s" % e)
+            messagebox.showinfo("SubSync", "Impossible d'ouvrir la vidéo : %s" % e, parent=self)
 
 
 class ModePicker(ctk.CTkFrame):
