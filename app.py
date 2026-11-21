@@ -312,10 +312,12 @@ class App(BaseTk):
         ctk.CTkLabel(self.enh_row, text="Fichier").grid(row=10, column=0, columnspan=2, sticky="w", pady=(8, 0))
         self.enh_size = ctk.CTkComboBox(self.enh_row, values=list(ENH_SIZE), width=265, command=lambda v: self._save_enh())
         self.enh_size.set(es.get("size", "Compact ≈ 1 Go (conseillé)")); self.enh_size.grid(row=11, column=0, columnspan=2, sticky="w")
-        pf2 = ctk.CTkFrame(self.enh_row, fg_color="transparent"); pf2.grid(row=13, column=0, columnspan=2, sticky="ew", pady=(10, 0))
-        ctk.CTkLabel(pf2, text="Moment (option.)").pack(side="left")
-        self.enh_time = ctk.CTkEntry(pf2, width=70, placeholder_text="10:05"); self.enh_time.pack(side="left", padx=6)
-        self.prev_btn = ctk.CTkButton(pf2, text="Aperçu (≈ 1 min)", width=120, command=self.preview); self.prev_btn.pack(side="left")
+        pf2 = ctk.CTkFrame(self.enh_row, fg_color="transparent"); pf2.grid(row=13, column=0, columnspan=2, sticky="ew", pady=(2, 0))
+        ctk.CTkLabel(self.enh_row, text="Aperçu : moment (facultatif) et durée des extraits").grid(row=12, column=0, columnspan=2, sticky="w", pady=(10, 0))
+        self.enh_time = ctk.CTkEntry(pf2, width=62, placeholder_text="10:05"); self.enh_time.pack(side="left", padx=(0, 4))
+        self.enh_pdur = ctk.CTkComboBox(pf2, values=["3 s", "5 s", "10 s", "20 s", "30 s", "60 s"], width=72, command=lambda v: self._save_enh())
+        self.enh_pdur.set(es.get("pdur", "5 s")); self.enh_pdur.pack(side="left", padx=(0, 6))
+        self.prev_btn = ctk.CTkButton(pf2, text="Aperçu", width=80, command=self.preview); self.prev_btn.pack(side="left")
         self.enh_help = ctk.CTkLabel(self.enh_row, text="", text_color=("gray35", "gray65"), font=ctk.CTkFont(size=11), wraplength=262, justify="left")
         self.enh_help.grid(row=14, column=0, columnspan=2, sticky="w", pady=(6, 0))
         self.enh_row.grid_remove()
@@ -409,7 +411,7 @@ class App(BaseTk):
             d = self._load_settings()
             self.enh_fstr_lbl.configure(text="%d %%" % round(float(self.enh_fstr.get()) * 100))
             d["enhance3"] = dict(preset=self.enh_preset.get(), res=self.enh_res.get(), faces=self.enh_faces.get(), fstr=round(float(self.enh_fstr.get()), 2), pre=self.enh_pre.get(),
-                                  grain=self.enh_grain.get(), size=self.enh_size.get())
+                                  grain=self.enh_grain.get(), size=self.enh_size.get(), pdur=self.enh_pdur.get())
             with open(self.SETTINGS, "w", encoding="utf-8") as f: json.dump(d, f)
         except Exception:
             pass
@@ -893,6 +895,8 @@ class App(BaseTk):
         except ValueError:
             messagebox.showinfo("SubSync", "Moment non compris : écrivez par exemple 10:05 ou 1:02:30."); return
         e = self._enh_opts(); label = self._enh_label()
+        try: pdur = max(1.0, min(120.0, float(self.enh_pdur.get().replace("s", "").replace(",", ".").strip())))
+        except ValueError: pdur = 5.0
         self.stop_flag = False
         self.go.configure(state="disabled"); self.stop_btn.configure(state="normal"); self.mode.configure(state="disabled")
         self.prev_btn.configure(state="disabled"); self.prog.set(0); self._timer_start(1)
@@ -902,18 +906,18 @@ class App(BaseTk):
                 info = merge.video_info(video)
                 dur = info["duration"] or info["frames"] * info["fps_den"] / info["fps_num"]
                 last = getattr(self, "_last_preview", None)
-                if t_user is not None: times = [min(max(0, t_user), max(0, dur - 6))]
-                elif last and last["video"] == video: times = last["times"]
+                if t_user is not None: times = [min(max(0, t_user), max(0, dur - pdur - 1))]
+                elif last and last["video"] == video and last.get("pdur") == pdur: times = last["times"]
                 else: times = [round(dur * f) for f in (0.2, 0.5, 0.8)]
                 stem = os.path.splitext(os.path.basename(video))[0]
-                work = os.path.join(APP_DIR, "cache", "apercu", "%s_%s_%s" % (stem[:40], self._enh_tag(e), "-".join(str(int(t)) for t in times)))
+                work = os.path.join(APP_DIR, "cache", "apercu", "%s_%s_%s_%gs" % (stem[:40], self._enh_tag(e), "-".join(str(int(t)) for t in times), pdur))
                 if os.path.isdir(work): shutil.rmtree(work, ignore_errors=True)
                 audio_mb = sum(0.224 for _ in range(2)) * dur / 8   # estimation grossière des pistes audio (2 x 224 kb/s)
                 job = dict(info, ffmpeg=eng.ffmpeg_exe(), src=video, out="", work=work, sharpen=0.35,
-                           preview=dict(times=times, dur=5), audio_mb=audio_mb, **e)
-                self.q.put(("log", "Aperçu (%s) : %d extrait(s) de 5 s…" % (label, len(times))))
+                           preview=dict(times=times, dur=pdur), audio_mb=audio_mb, **e)
+                self.q.put(("log", "Aperçu (%s) : %d extrait(s) de %g s…" % (label, len(times), pdur)))
                 res = self._run_video_job(job, lambda m: self.q.put(("log", m)), lambda f: self.q.put(("prog", f)), lambda: self.stop_flag)
-                self.q.put(("preview_ready", dict(video=video, times=times, label=label, data=res.get("preview", {}))))
+                self.q.put(("preview_ready", dict(video=video, times=times, pdur=pdur, label=label, data=res.get("preview", {}))))
             except eng.Cancelled:
                 self.q.put(("log", "Aperçu arrêté."))
             except Exception:
@@ -923,7 +927,7 @@ class App(BaseTk):
 
     def _show_preview(self, pv):
         prev = getattr(self, "_last_preview", None)
-        other = prev if (prev and prev["video"] == pv["video"] and prev["times"] == pv["times"] and prev["label"] != pv["label"]) else None
+        other = prev if (prev and prev["video"] == pv["video"] and prev["times"] == pv["times"] and prev.get("pdur") == pv.get("pdur") and prev["label"] != pv["label"]) else None
         PreviewWindow(self, pv, other)
         self._last_preview = pv
 

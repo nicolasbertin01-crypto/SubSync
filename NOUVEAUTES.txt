@@ -1,3 +1,6 @@
+SubSync 1.11.1
+- Aperçu : choix de la durée des extraits (3, 5, 10, 20, 30 ou 60 s ; on peut aussi taper une valeur). Le choix est mémorisé.
+
 SubSync 1.11
 - Amélioration vidéo : bouton « Aperçu (≈ 1 min) ». Traite 3 extraits de 5 s (ou un moment précis, ex. 10:05) avec les réglages choisis, puis ouvre une fenêtre de comparaison : curseur avant/après à glisser, zoom ×3 par clic droit, « Voir en vidéo » (extrait original et amélioré côte à côte), estimation de la durée de traitement et de la taille du fichier final.
 - Comparaison A/B : en relançant un aperçu avec d'autres réglages sur la même vidéo, on peut afficher à gauche le réglage précédent au lieu de l'original.
