@@ -1,3 +1,6 @@
+SubSync 1.16.3
+- Amélioration vidéo : correction d'un décalage du son (≈ 0,2 s d'avance) sur les vidéos .mpg / DVD dont le son et l'image ne commencent pas au début du fichier.
+
 SubSync 1.16.2
 - Amélioration vidéo : correction des plantages « accès refusé » (code 3221225477) apparus en 1.16 avec le rendu « Net » et la retouche des visages : deux calculs envoyés en même temps à la carte graphique AMD. Ils passent maintenant l'un après l'autre.
 - Nouvelle case « Couper les parasites en bas de l'image (VHS) » : supprime la bande de lignes tremblées en bas des enregistrements VHS (≈ 2 % de la hauteur).

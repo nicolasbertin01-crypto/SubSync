@@ -64,6 +64,9 @@ def video_info(path):
     sar = v.sample_aspect_ratio or v.codec_context.sample_aspect_ratio
     dar = W / H * (float(sar) if sar and float(sar) > 0 else 1.0)
     st = float(v.start_time * v.time_base) if v.start_time is not None else 0.0
+    # ffmpeg ramène le début du fichier à 0 : seul compte l'écart entre l'image et le début du fichier
+    # (ex. .mpg de DVD : son à 0,19 s, image à 0,27 s → l'image doit commencer 0,08 s après le son)
+    if c.start_time is not None: st -= c.start_time / 1e6
     subs = [s.codec_context.name if s.codec_context else "" for s in c.streams.subtitles]
     auds = [int(getattr(s.codec_context, "channels", 2) or 2) for s in c.streams.audio]
     c.close()
