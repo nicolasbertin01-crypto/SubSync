@@ -452,9 +452,10 @@ class App(BaseTk):
         cf = ctk.CTkFrame(self.enh_row, fg_color="transparent"); cf.grid(row=11, column=0, columnspan=2, sticky="w")
         self.enh_deint = ctk.CTkCheckBox(cf, text="Désentrelacer si nécessaire", command=self._save_enh)
         self.enh_crop = ctk.CTkCheckBox(cf, text="Rogner les bandes noires", command=self._save_enh)
+        self.enh_vhs = ctk.CTkCheckBox(cf, text="Couper les parasites en bas de l'image (VHS)", command=self._save_enh)
         self.enh_color = ctk.CTkCheckBox(cf, text="Raviver couleurs et contraste (doux)", command=self._save_enh)
         self.enh_audio = ctk.CTkCheckBox(cf, text="Améliorer le son (dialogues plus clairs,\nmoins de souffle, volume homogène)", command=self._save_enh)
-        for i_, (wdg, key, dflt) in enumerate(((self.enh_deint, "deint", True), (self.enh_crop, "crop", True), (self.enh_color, "color", False),
+        for i_, (wdg, key, dflt) in enumerate(((self.enh_deint, "deint", True), (self.enh_crop, "crop", True), (self.enh_vhs, "vhs", False), (self.enh_color, "color", False),
                                                (self.enh_audio, "audio", False))):
             wdg.grid(row=i_, column=0, sticky="w", pady=1)
             if es.get(key, dflt): wdg.select()
@@ -567,7 +568,7 @@ class App(BaseTk):
             self.enh_fstr_lbl.configure(text="%d %%" % round(float(self.enh_fstr.get()) * 100))
             d["enhance3"] = dict(preset=self.enh_preset.get(), res=self.enh_res.get(), faces=self.enh_faces.get(), fstr=round(float(self.enh_fstr.get()), 2), pre=self.enh_pre.get(),
                                   grain=self.enh_grain.get(), size=self.enh_size.get(), pdur=self.enh_pdur.get(),
-                                  deint=bool(self.enh_deint.get()), crop=bool(self.enh_crop.get()), color=bool(self.enh_color.get()),
+                                  deint=bool(self.enh_deint.get()), crop=bool(self.enh_crop.get()), vhs=bool(self.enh_vhs.get()), color=bool(self.enh_color.get()),
                                   audio=bool(self.enh_audio.get()))
             with open(self.SETTINGS, "w", encoding="utf-8") as f: json.dump(d, f)
         except Exception:
@@ -898,7 +899,7 @@ class App(BaseTk):
                              faces=ENH_FACES.get(self.enh_faces.get(), "gfpgan"), face_strength=round(float(self.enh_fstr.get()), 2),
                              preclean=ENH_PRECLEAN.get(self.enh_pre.get(), ""), degrain=ENH_GRAIN.get(self.enh_grain.get(), "reduire"),
                              size=ENH_SIZE.get(self.enh_size.get(), "compact"), auto_deint=bool(self.enh_deint.get()),
-                             auto_crop=bool(self.enh_crop.get()), color="doux" if self.enh_color.get() else "",
+                             auto_crop=bool(self.enh_crop.get()), vhs_cut=bool(self.enh_vhs.get()), color="doux" if self.enh_color.get() else "",
                              audio_fix=bool(self.enh_audio.get())), chain=bool(self.chain.get()), rename=bool(self.rename.get()), ocr=bool(self.ocr.get()))
         if opts["chain"] and mode != "enhance" and not video_ready():
             messagebox.showinfo("SubSync", "« Tout-en-un » demande l'amélioration vidéo : lancez une fois « Installer l'amélioration vidéo.bat »."); return
@@ -1048,7 +1049,7 @@ class App(BaseTk):
                     enh_preset=self.enh_preset.get(), enh_res=self.enh_res.get(), enh_faces=self.enh_faces.get(),
                     enh_fstr=float(self.enh_fstr.get()), enh_pre=self.enh_pre.get(), enh_grain=self.enh_grain.get(),
                     enh_size=self.enh_size.get(), enh_pdur=self.enh_pdur.get(), out_dir=self.out_dir,
-                    enh_deint=bool(self.enh_deint.get()), enh_crop=bool(self.enh_crop.get()), enh_color=bool(self.enh_color.get()),
+                    enh_deint=bool(self.enh_deint.get()), enh_crop=bool(self.enh_crop.get()), enh_vhs=bool(self.enh_vhs.get()), enh_color=bool(self.enh_color.get()),
                     enh_audio=bool(self.enh_audio.get()), chain=bool(self.chain.get()), rename=bool(self.rename.get()), ocr=bool(self.ocr.get()))
 
     def _apply(self, d):
@@ -1058,7 +1059,7 @@ class App(BaseTk):
                        ("enh_grain", self.enh_grain), ("enh_size", self.enh_size), ("enh_pdur", self.enh_pdur)):
             if d.get(k): wdg.set(d[k])
         if "enh_fstr" in d: self.enh_fstr.set(d["enh_fstr"])
-        for k, wdg in (("enh_deint", self.enh_deint), ("enh_crop", self.enh_crop), ("enh_color", self.enh_color), ("enh_audio", self.enh_audio),
+        for k, wdg in (("enh_deint", self.enh_deint), ("enh_crop", self.enh_crop), ("enh_vhs", self.enh_vhs), ("enh_color", self.enh_color), ("enh_audio", self.enh_audio),
                        ("chain", self.chain), ("rename", self.rename), ("ocr", self.ocr)):
             if k in d: (wdg.select() if d[k] else wdg.deselect())
         if "keep_langs" in d:
@@ -1164,7 +1165,7 @@ class App(BaseTk):
     def _enh_tag(self, e):
         return "v3_%s_%d_%s_%d%s" % (e["preset"], e["target_h"], e["faces"] or "sans", int(e["face_strength"] * 100),
                                      ("_" + e["preclean"] if e.get("preclean") else "") + ("_g" + e["degrain"] if e.get("degrain") else "") + "_" + e.get("size", "compact")
-                                     + ("_c" if e.get("color") else "") + ("" if e.get("auto_crop", True) else "_nocrop") + ("" if e.get("auto_deint", True) else "_nodeint"))
+                                     + ("_c" if e.get("color") else "") + ("" if e.get("auto_crop", True) else "_nocrop") + ("" if e.get("auto_deint", True) else "_nodeint") + ("_vhs" if e.get("vhs_cut") else ""))
 
     def _run_video_job(self, job, log, progress, cancel):
         """Lance subsync_enhance.py dans l'environnement vidéo ; renvoie les messages « done » et « preview »."""
@@ -1329,7 +1330,7 @@ class App(BaseTk):
                     faces=ENH_FACES.get(self.enh_faces.get(), "gfpgan"), face_strength=round(float(self.enh_fstr.get()), 2),
                     preclean=ENH_PRECLEAN.get(self.enh_pre.get(), ""), degrain=ENH_GRAIN.get(self.enh_grain.get(), "reduire"),
                     size=ENH_SIZE.get(self.enh_size.get(), "compact"), auto_deint=bool(self.enh_deint.get()),
-                    auto_crop=bool(self.enh_crop.get()), color="doux" if self.enh_color.get() else "", audio_fix=bool(self.enh_audio.get()))
+                    auto_crop=bool(self.enh_crop.get()), vhs_cut=bool(self.enh_vhs.get()), color="doux" if self.enh_color.get() else "", audio_fix=bool(self.enh_audio.get()))
 
     def _enh_label(self):
         g = self.enh_grain.get().split(" (")[0]; pre = self.enh_pre.get().split(" (")[0]

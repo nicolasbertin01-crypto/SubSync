@@ -1,3 +1,7 @@
+SubSync 1.16.2
+- Amélioration vidéo : correction des plantages « accès refusé » (code 3221225477) apparus en 1.16 avec le rendu « Net » et la retouche des visages : deux calculs envoyés en même temps à la carte graphique AMD. Ils passent maintenant l'un après l'autre.
+- Nouvelle case « Couper les parasites en bas de l'image (VHS) » : supprime la bande de lignes tremblées en bas des enregistrements VHS (≈ 2 % de la hauteur).
+
 SubSync 1.16.1
 - Amélioration vidéo : correction d'un plantage sur certaines vidéos (.mpg de DVD/VHS, bandes noires rognées) dont les dimensions ne convenaient pas à la carte graphique.
 - En cas de plantage du moteur vidéo, le message explique maintenant la cause probable et le journal en garde la trace.

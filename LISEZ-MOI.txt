@@ -1,4 +1,4 @@
-﻿SubSync 1.16.1 - synchronisation automatique de sous-titres
+﻿SubSync 1.16.2 - synchronisation automatique de sous-titres
 ==========================================================
 
 INSTALLATION (une seule fois)

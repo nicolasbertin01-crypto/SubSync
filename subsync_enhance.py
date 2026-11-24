@@ -69,6 +69,15 @@ def ensure_model(spec):
     return path
 
 
+GPU_LOCK = threading.Lock()
+
+class _Locked:
+    """Session ONNX dont les calculs passent un par un (DirectML plante si deux fils calculent en même temps)."""
+    def __init__(self, s): self._s = s
+    def run(self, *a, **k):
+        with GPU_LOCK: return self._s.run(*a, **k)
+    def __getattr__(self, n): return getattr(self._s, n)
+
 def session(path, prov):
     import onnxruntime as ort
     so = ort.SessionOptions(); so.log_severity_level = 3
@@ -168,7 +177,7 @@ def run(job):
     total = int(job["frames"])
     work = job["work"]; os.makedirs(work, exist_ok=True)
     dar = job["dar"]; pre_parts = []; base_parts = []
-    if job.get("auto_deint", True) or job.get("auto_crop", True) or job.get("color"):
+    if job.get("auto_deint", True) or job.get("auto_crop", True) or job.get("color") or job.get("vhs_cut"):
         an = analyse(ff, src, W, H, fps, total / fps, work, log)
         if job.get("auto_deint", True) and an["interlace"]:
             if an["interlace"] == "telecine":
@@ -184,6 +193,11 @@ def run(job):
             pre_parts.append("crop=%d:%d:%d:%d" % (cw, ch, cx, cy))
             dar = dar * (cw / W) / (ch / H); W, H = cw, ch
             log("  bandes noires rognées : image utile %d×%d" % (cw, ch))
+        if job.get("vhs_cut"):
+            cut = max(8, int(round(H * 0.022 / 2)) * 2)  # zone de commutation des têtes VHS (≈ 12 lignes sur 576)
+            pre_parts.append("crop=%d:%d:0:0" % (W, H - cut))
+            dar = dar * H / (H - cut); H = H - cut
+            log("  parasites VHS du bas coupés : %d lignes" % cut)
         base_parts = list(pre_parts)                      # l'« avant » de l'aperçu : rogné/désentrelacé, sans retouche
         if job.get("color"):
             cf = color_filter(an)
@@ -198,7 +212,7 @@ def run(job):
         "visages " + job["faces"] if job.get("faces") else "sans visages", job.get("preset"),
         (", nettoyage " + job["preclean"] if job.get("preclean") else "") + (", grain " + job["degrain"] if job.get("degrain") else ""), where))
     import cv2
-    up = session(ensure_model(spec), prov)
+    up = _Locked(session(ensure_model(spec), prov))
     up_in = up.get_inputs()[0].name
     up_f16 = "float16" in up.get_inputs()[0].type
     fr = None
@@ -206,6 +220,7 @@ def run(job):
         sys.path.insert(0, HERE)
         import subsync_faces
         fr = subsync_faces.FaceRestorer(os.path.join(MODELS, "scrfd_2.5g.onnx"), os.path.join(MODELS, FACE_MODELS[job["faces"]]), prov)
+        fr.det = _Locked(fr.det); fr.rest = _Locked(fr.rest)
     fstr = float(job.get("face_strength", 0.4))
     global BITRATE_M
     BITRATE_M = max(4, int(round(10 * (TW * TH) / (1440 * 1080))))
