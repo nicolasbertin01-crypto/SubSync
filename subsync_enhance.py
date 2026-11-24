@@ -216,6 +216,7 @@ def run(job):
     done_frames = sum(min(SEG, total - k * SEG) for k in range(nseg) if os.path.exists(os.path.join(work, "seg_%05d.mkv" % k)))
     if done_frames: log("  reprise : %d / %d images déjà traitées" % (done_frames, total))
     emit(t="prog", done=done_frames, total=total)
+    PADH = (-H) % 16 if spec["kind"] != "graph" else 0; PADW = (-W) % 16 if spec["kind"] != "graph" else 0
     sizes = np.array([1, 3, TH, TW], np.int64); mixa = np.array([mix], np.float32)
     dg = DEGRAIN.get(job.get("degrain") or "")
     vf = (dg + "," if dg else "") + "cas=%.2f,scale=out_color_matrix=bt709:out_range=tv,format=yuv420p" % float(job.get("sharpen", 0.35))
@@ -262,6 +263,8 @@ def run(job):
                     if len(b) < fsz: break
                     src8 = np.frombuffer(b, np.uint8).reshape(H, W, 3)
                     x = (src8.astype(np.float32) * (1.0 / 255.0)).transpose(2, 0, 1)[None]
+                    if PADH or PADW:                     # dimensions multiples de 16 (certains pilotes plantent sinon)
+                        x = np.pad(x, ((0, 0), (0, 0), (0, PADH), (0, PADW)), mode="edge")
                     if spec["kind"] != "graph" and up_f16: x = x.astype(np.float16)
                     q_in.put((src8, np.ascontiguousarray(x)))
             except Exception as e:
@@ -277,6 +280,8 @@ def run(job):
                     if spec["kind"] == "graph":
                         img = (y.transpose(1, 2, 0) * 255.0 + 0.5).astype(np.uint8)
                     else:
+                        if PADH or PADW:
+                            sc = y.shape[1] // (H + PADH); y = y[:, :H * sc, :W * sc]
                         img = (np.clip(y.astype(np.float32).transpose(1, 2, 0), 0, 1) * 255.0 + 0.5).astype(np.uint8)
                         if img.shape[1] != TW or img.shape[0] != TH:
                             img = cv2.resize(img, (TW, TH), interpolation=cv2.INTER_AREA if img.shape[1] > TW else cv2.INTER_CUBIC)
@@ -437,6 +442,7 @@ def preview(job, do_segment, stats, fps_n, fps_d, TW, TH, work):
 
 
 if __name__ == "__main__":
+    import faulthandler; faulthandler.enable()            # en cas de plantage du pilote : trace dans le journal
     try: sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except Exception: pass
     try:

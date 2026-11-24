@@ -1194,7 +1194,11 @@ class App(BaseTk):
             elif m.get("t") == "err": err = m["m"]
         p.wait()
         if cancel(): raise eng.Cancelled()
-        if err or "done" not in res: raise RuntimeError(err or "le traitement s'est arrêté sans résultat")
+        if err or "done" not in res:
+            if not err and p.returncode not in (0, 1, None):
+                err = ("le moteur vidéo s'est fermé brutalement (code %s), probablement un plantage du pilote de la carte "
+                       "graphique. Mettez à jour le pilote AMD ou essayez le rendu « Lissé »." % p.returncode)
+            raise RuntimeError(err or "le traitement s'est arrêté sans résultat")
         return res
 
     def _enhance(self, video, opts, log, progress, cancel):

@@ -1,3 +1,7 @@
+SubSync 1.16.1
+- Amélioration vidéo : correction d'un plantage sur certaines vidéos (.mpg de DVD/VHS, bandes noires rognées) dont les dimensions ne convenaient pas à la carte graphique.
+- En cas de plantage du moteur vidéo, le message explique maintenant la cause probable et le journal en garde la trace.
+
 SubSync 1.16
 - Amélioration vidéo plus rapide : lecture, calcul sur la carte graphique et finition des images se font maintenant en parallèle (≈ 25 à 30 % plus rapide selon la machine).
 - Nouvelle case « Améliorer le son » (mode Améliorer) : dialogues plus clairs, moins de souffle et de bourdonnement, volume homogène (fini les explosions trop fortes et les dialogues trop bas).
